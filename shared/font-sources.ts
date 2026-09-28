@@ -1,4 +1,4 @@
-/** Compressed upstream sources, read only by build tools and the Mac host. */
+/** Compressed upstream sources, read by build tools and the companion host. */
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { parseBdf } from "./bitmap-font.ts";

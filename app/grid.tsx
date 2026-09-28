@@ -54,7 +54,7 @@ function connectionLabel(store: TermStore): string {
     case "no-svc":
       return "this host has no companion channel";
     case "search":
-      return "waiting for the paired Mac…";
+      return "waiting for the paired companion…";
     case "link":
       return "companion linked — waiting for a session…";
     case "live":

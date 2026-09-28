@@ -1,11 +1,9 @@
-# work in progress - trying to port to omarchy
+# Pocket Term - Omarchy Version
 
-# Pocket Term
-
-Pocket Term is a **Nintendo 3DS terminal client for macOS**. Open independent
-shell sessions, switch between them, edit in Vim or Nano, and read scrollback
-with the Circle Pad or a touchpad. Each session can also open a Mac mirror
-window connected to the same PTY.
+Pocket Term is a **Nintendo 3DS terminal client with an Omarchy companion**.
+Open independent shell sessions, switch between them, edit in Vim or Nano,
+and read scrollback with the Circle Pad or a touchpad. Each session can also
+open a desktop mirror window connected to the same PTY.
 
 The top screen uses its full **400×240 pixels for 80 columns × 24 rows**.
 The lower screen contains session tabs, a scroll touchpad and a keyboard;
@@ -19,83 +17,109 @@ and provenance are in [screenshots](docs/screenshots/README.md).
 
 ## What it supports
 
-- **Multiple real shells.** Up to 32 macOS PTYs, paged session tabs, ANSI color,
+- **Multiple real shells.** Up to 32 host PTYs, paged session tabs, ANSI color,
   alternate screens, terminal cursor keys and explicit bracketed paste.
 - **Local inertial scrollback.** Pixel movement continues while history loads.
   A bounded 3DS cache retains fetched rows; missing rows show placeholders.
-  The Mac retains up to 2,000 history rows per session.
+  The companion retains up to 2,000 history rows per session.
 - **Hardware cursor control.** The D-pad and right nub send repeating terminal
   arrows, including application cursor mode for editors such as Vim and Nano.
 - **Selectable bitmap fonts.** Spleentt 5×8, Spleen 5×8 and Fusion Pixel 10px
   preserve their original pixels. ASCII occupies 5px; wide characters occupy
-  two columns. The Mac supplies glyphs missing from the baked atlas.
+  two columns. The companion supplies glyphs missing from the baked atlas.
 - **Provisional input preview.** After observing matching application echoes,
   the client can show pending text or cursor movement before its reply arrives.
   The preview never changes the actual terminal grid or executes a command.
 
-## Build and connect
+## Install on Omarchy
 
-Use a Mac and a homebrew-capable 3DS on the same local network. The console
-needs Homebrew Launcher and ftpd. Building requires Bun, Node, Rust through
-rustup, and a running Docker engine. CI uses **Bun 1.3.14 and Node 24**;
-`bun run daemon` starts the Node supervisor and its Bun offload provider.
+Use an Omarchy computer and a homebrew-capable Nintendo 3DS on the same local
+network. The 3DS needs Homebrew Launcher and ftpd. The Omarchy build needs Bun,
+Node, Rust through rustup, Cargo, and Docker Engine. CI uses **Bun 1.3.14 and
+Node 24**. The daemon runs under Node and starts its PocketJS offload provider
+under Bun.
 
-PocketJS is pinned as the `vendor/pocketjs` submodule. Its
-[Rust toolchain file](vendor/pocketjs/hosts/3ds/core/rust-toolchain.toml) selects
-the nightly used by the 3DS build; the build script drives the devkitARM
-container. Install that pinned toolchain with its `rust-src` component if
-rustup has not already provisioned it.
+Install the desktop host's Linux build libraries:
 
 ```sh
-git clone --recursive https://github.com/pocket-stack/pocket-term
-cd pocket-term
+sudo pacman -S --needed base-devel cmake fontconfig freetype2 libxkbcommon mesa pkgconf wayland wayland-protocols
+```
+
+The desktop mirror uses the active Wayland session. Dynamic CJK and symbol
+glyphs use fontconfig; install Noto fonts if your system does not already have
+them. Make sure `~/.cargo/bin` is on `PATH` and Docker is running for your user.
+
+Clone the repository and install its pinned PocketJS submodule and host
+dependencies:
+
+```sh
+git clone --recursive https://github.com/chrispository/pocket-term-omarchy.git
+cd pocket-term-omarchy
 bun run setup
+```
+
+PocketJS pins the Rust nightly used by the 3DS build. Fetch its PSP host
+dependency to populate the pinned QuickJS source, and pull the devkitARM image
+used by the 3DS linker:
+
+```sh
+cargo fetch --locked --manifest-path vendor/pocketjs/hosts/psp/Cargo.toml
+docker pull devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5
+```
+
+Build the 3DS app and the Omarchy desktop mirror:
+
+```sh
 bun run 3ds
 bun run mirror
 ```
 
-Keep `~/.cargo/bin` on `PATH`. `mirror` builds the optional Mac window; use
-`--no-mirror` when starting the daemon if you do not want desktop windows.
-
-Start ftpd on the console, then replace the example IP with the address
-shown by ftpd:
+Start ftpd on the 3DS and deploy the launcher. Replace the address with the
+console IP shown by ftpd:
 
 ```sh
-bun run deploy --host 192.168.8.102
+bun run deploy --host 10.0.0.154
 ```
 
-The deploy command installs `dist/3ds/pocketterm-main.3dsx` at
-`/3DS/pocketterm-main.3dsx`, provisions this app's offload key, backs up the
-previous launcher, and downloads the installed files to verify their bytes.
-The default FTP port is 5000; use `--ftp-port` if yours differs.
-
-**Exit ftpd and launch Pocket Term from Homebrew Launcher.** Start the Mac
-companion with the same console address:
+Deploy installs `dist/3ds/pocketterm-main.3dsx` at
+`/3DS/pocketterm-main.3dsx`, provisions this app's offload key, backs up any
+previous launcher, and reads the installed files back to verify their bytes.
+The default FTP port is 5000; use `--ftp-port` if yours differs. Pairing is
+optional; it also provisions the PocketJS development key:
 
 ```sh
-bun run daemon --device 192.168.8.102
+bun run pair --host <console-ip>
+```
+
+**Exit ftpd, then launch `/3DS/pocketterm-main.3dsx` from Homebrew Launcher.**
+With Pocket Term running, start the Omarchy companion using the same console
+address:
+
+```sh
+bun run daemon --device 10.0.0.154
 ```
 
 Keep the companion running while using the terminal. It starts a shell for
-the first device connection and opens a mirror for each session when the
-mirror build is available. Useful options are:
+the first device connection and opens a desktop mirror for each session when
+the mirror build is available. Use `--no-mirror` to run only the handheld.
+Useful options are:
 
 | Option | Purpose |
 | --- | --- |
 | `--cwd /path/to/project` | Working directory for new shells |
-| `--shell /bin/zsh` | Shell executable |
+| `--shell /bin/bash` | Shell executable; defaults to executable `$SHELL`, then Bash |
 | `--no-login` | Start the shell without login mode |
-| `--no-mirror` | Use the handheld without opening Mac windows |
+| `--no-mirror` | Use the handheld without opening desktop windows |
 | `--name name` | Companion name |
 | `--key /path/to/key` | Pairing key; defaults to `.pocket/offload.key` |
 | `--trace` | Log command kinds and session changes, without typed text |
 
 `--unicast` is an alias for `--device`. The pairing key belongs to this app;
-keep the Mac's `.pocket/offload.key` when updating an existing installation.
+keep the companion's `.pocket/offload.key` when updating an existing installation.
 
 **A Wi-Fi or provider reconnect preserves PTYs while the Node worker remains
 alive. Stopping the companion ends its sessions.** Reconnect persistence is
-in memory and does not restore shells after a Mac or daemon restart.
+in memory and does not restore shells after an Omarchy or daemon restart.
 
 ## Controls and settings
 
@@ -117,7 +141,7 @@ in memory and does not restore shells after a Mac or daemon restart.
 | L + R + START | Return to Homebrew Launcher |
 
 The touch keyboard provides Shift, Ctrl and Alt. The hardware arrows replace
-touch arrow keys. Mac mirrors accept keyboard input and paste into their
+touch arrow keys. Desktop mirrors accept keyboard input and paste into their
 assigned session; session creation, closing and switching belong to the 3DS.
 
 <img src="docs/screenshots/settings.png" width="320" height="240" alt="Current lower-screen settings: Spleentt, Spleen and Fusion Pixel fonts, Auto typing preview and Fast scroll speed" />
@@ -139,10 +163,10 @@ Bun provider worker ── authenticated loopback ── Node terminal worker
                                                  ├─ PTYs + libghostty
                                                  ├─ session and history registry
                                                  ├─ dynamic glyph rasterization
-                                                 └─ session-specific Mac mirrors
+                                                 └─ session-specific desktop mirrors
 ```
 
-**The Node worker owns terminal state; the 3DS owns presentation and input.**
+**The Node worker on the desktop owns terminal state; the 3DS owns presentation and input.**
 The handheld does not spawn processes, parse terminal escape sequences or
 rasterize outline fonts. PocketJS delivers asynchronous results at frame
 boundaries. Complete grid generations commit together; historical rows are
@@ -171,8 +195,8 @@ Wi-Fi throughput or a guaranteed frame rate.
 The provider ownership follows [Pocket Doc](https://github.com/pocket-stack/pocket-doc).
 Public PocketJS APIs own runtime, input and host operations; Solid owns
 reactivity. Product protocol and budgets live in `shared/`, the handheld in
-`app/`, and terminal capabilities in `host/`. Mac mirror listeners bind only
-to loopback; LAN terminal access uses paired offload.
+`app/`, and terminal capabilities in `host/`. Mirror listeners bind only to
+loopback; LAN terminal access uses paired offload.
 
 ## Updating and troubleshooting
 
@@ -202,7 +226,7 @@ The app's runtime storage is isolated under
 
 ```sh
 bun run check                # guest/host types and terminal unit tests
-bun run test:pty             # actual providers, macOS PTYs and VT behavior
+bun run test:pty             # actual providers, PTYs and VT behavior
 bun scripts/font.ts --check  # reproduce all three shipped bitmap atlases
 bun run visual --showcase    # build the documentation capture fixture
 bun run visual --showcase --settings
@@ -225,4 +249,4 @@ remain distinct from physical timing measurements.
 MIT. PocketJS, libghostty and the fonts retain their own licenses.
 [Font sources](assets/fonts/README.md) records pinned upstream versions,
 licenses and original-byte hashes. BDF sources are stored as lossless gzip
-archives and decoded by build tools and the Mac host.
+archives and decoded by build tools and the companion host.

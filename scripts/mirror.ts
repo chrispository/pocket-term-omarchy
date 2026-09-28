@@ -1,4 +1,4 @@
-// bun run mirror — build the Mac/Linux mirror window: the guest bundle plus
+// bun run mirror — build the desktop mirror window: the guest bundle plus
 // the stock PocketJS desktop host it runs on.
 //
 // The daemon spawns one of these per session (host/serve.ts openMirror), so

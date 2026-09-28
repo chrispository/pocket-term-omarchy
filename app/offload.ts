@@ -13,7 +13,7 @@ export function createTermChannel(io: IO, replica = `${Date.now().toString(36)}-
   let partial = "", outputRetry = 0, inputRetry = 0, lastHello: ClientLine | undefined, error = "";
   const commands: InputCommand[] = [], incoming: (HostLine | HostInputLine)[] = [];
   const enqueue = (lines: ClientLine[]) => {
-    if (commands.length + lines.length > LIMITS.commands) { error = "Input queue full; wait for the Mac"; return false; }
+    if (commands.length + lines.length > LIMITS.commands) { error = "Input queue full; wait for the companion"; return false; }
     for (const line of lines) { if (line.t === "hello") lastHello = line; commands.push({ id: nextId++, line }); }
     return true;
   };
@@ -24,7 +24,7 @@ export function createTermChannel(io: IO, replica = `${Date.now().toString(36)}-
       if (input) io.cancel(input); if (output) io.cancel(output); input = output = 0;
       commands.length = 0; nextId = 1; received = 0; partial = ""; incoming.length = 0;
       incoming.push({ t: "transport-reset" });
-      error = "Mac restarted; pending input discarded";
+      error = "Companion restarted; pending input discarded";
       epoch = reply.epoch;
       if (lastHello) enqueue([lastHello]);
       return false;

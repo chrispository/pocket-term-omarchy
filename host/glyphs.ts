@@ -9,7 +9,7 @@
 // rasterizer lives on the companion, because the console has neither a font
 // file nor a rasterizer.
 //
-// It takes a CHAIN of faces, not one. No single font on a Mac covers what a
+// It takes a CHAIN of faces, not one. No single system font covers what a
 // terminal shows: JetBrains Mono has ❯ and the box drawing but no CJK, a CJK
 // face has neither ⏺ nor ⎿, and ⏺ turns out to live in a math font. Each
 // face gets its own atlas in its own spare slot (0..18 are the app's baked
@@ -28,6 +28,7 @@
 //     would paint over its neighbour.
 
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 // Default import: opentype.js exposes its ESM build only through the
@@ -40,6 +41,23 @@ import { bitmapCell, type BitmapFont } from "../shared/bitmap-font.ts";
 import { bitmapFontSource, loadBitmapFont } from "../shared/font-sources.ts";
 
 const ROOT = fileURLToPath(new URL("../vendor/pocketjs/", import.meta.url));
+
+/** Let fontconfig locate the installed Linux faces. Omarchy and other Arch
+ *  systems put Noto fonts in different directories depending on the package;
+ *  asking by family name also respects the user's font configuration. */
+function fontconfigMatch(family: string): string[] {
+  if (process.platform !== "linux") return [];
+  try {
+    const path = execFileSync("fc-match", ["--format=%{file}", family], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1500,
+    }).trim();
+    return path ? [path] : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * The fallback chain, best face first. Each entry takes one atlas slot, so
@@ -61,17 +79,36 @@ const FONT_CHAIN: readonly { label: string; paths: readonly string[] }[] = [
     label: "cjk",
     paths: [
       process.env.POCKET_TERM_CJK_FONT ?? "",
+      ...fontconfigMatch("Noto Sans CJK SC"),
+      ...fontconfigMatch("Noto Sans CJK JP"),
       "/System/Library/Fonts/Hiragino Sans GB.ttc",
       "/System/Library/Fonts/STHeiti Light.ttc",
+      "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
       "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
       "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
     ],
   },
-  { label: "symbols", paths: ["/System/Library/Fonts/Apple Symbols.ttf"] },
-  { label: "math", paths: ["/System/Library/Fonts/Supplemental/STIXTwoMath.otf"] },
+  {
+    label: "symbols",
+    paths: [
+      ...fontconfigMatch("Noto Sans Symbols 2"),
+      "/System/Library/Fonts/Apple Symbols.ttf",
+      "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
+    ],
+  },
+  {
+    label: "math",
+    paths: [
+      ...fontconfigMatch("Noto Sans Math"),
+      ...fontconfigMatch("STIX Two Math"),
+      "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
+      "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
+    ],
+  },
   {
     label: "unicode",
     paths: [
+      ...fontconfigMatch("DejaVu Sans"),
       "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
       "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ],
@@ -94,8 +131,8 @@ export function isBakedCodepoint(cp: number): boolean {
 // TrueType Collections
 // ---------------------------------------------------------------------------
 
-/** Every CJK face macOS ships is a .ttc, and opentype.js rejects the `ttcf`
- *  signature outright. Lifting one member out is a table copy: the collection
+/** Many system CJK faces are .ttc collections, and opentype.js rejects the
+ *  `ttcf` signature outright. Lifting one member out is a table copy: the collection
  *  header points at sfnt headers whose table records carry file-absolute
  *  offsets, so a standalone font is those tables rewritten against a fresh
  *  record table. */

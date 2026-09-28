@@ -308,8 +308,8 @@ describe("runtime glyph atlas", () => {
   });
 
   test("a font collection yields a standalone sfnt", () => {
-    // Every CJK face macOS ships is a .ttc and opentype.js rejects the
-    // signature outright, so the companion lifts one member out itself.
+    // Font collections use .ttc and opentype.js rejects the signature
+    // outright, so the companion lifts one member out itself.
     const tables = [
       { tag: 0x676c7966, data: new Uint8Array([1, 2, 3]) }, // 'glyf'
       { tag: 0x6c6f6361, data: new Uint8Array([4, 5]) }, // 'loca'

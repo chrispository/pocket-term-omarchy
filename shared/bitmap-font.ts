@@ -1,4 +1,4 @@
-/** BDF decoding used by the build and the Mac rasterizer, never by the guest. */
+/** BDF decoding used by the build and companion rasterizer, never by the guest. */
 export interface BitmapGlyph { advance: number; width: number; height: number; x: number; y: number; pixels: Uint8Array }
 export interface BitmapFont { ascent: number; height: number; glyphs: Map<number, BitmapGlyph> }
 export function parseBdf(text: string): BitmapFont {

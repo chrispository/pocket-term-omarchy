@@ -1,5 +1,5 @@
 // Visible terminal replica. Completed grid generations commit atomically;
-// sequence gaps request a snapshot. PTYs and scrollback remain on the Mac.
+// sequence gaps request a snapshot. PTYs and scrollback remain on the host.
 
 import { batch, createMemo, createSignal, type Accessor } from "solid-js";
 import { virtualNow } from "@pocketjs/framework/clock";

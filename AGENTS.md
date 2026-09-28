@@ -43,8 +43,8 @@ updates. `push` and `probe` apply only to the previous svc launcher.
   call frame is expensive and a mount descends the tree. One extra level under
   each key of the keyboard once overflowed the host's whole limit at boot;
   prefer an offset to a wrapper view when a wrapper only carries a position.
-- **A long companion name is not a hypothetical.** `hostname()` gives
-  "evandeMacBook-Pro" by default. Anything sharing a row with it is anchored
+- **A long companion name is not a hypothetical.** `hostname()` returns the
+  machine's configured hostname. Anything sharing a row with it is anchored
   to its own edge and given a measured width.
 - **The status bar's host name is measured, not placed.** `getOps().measureText`
   in the title's own font slot is what keeps the title off it.
@@ -56,7 +56,7 @@ updates. `push` and `probe` apply only to the previous svc launcher.
   that the fresh guest draws blanks where the old one drew CJK.
 - **Terminal access uses paired io.offload.** `--device <console-ip>` (and
   the legacy `--unicast` alias) selects the provider destination. PKNT is
-  loopback-only for Mac mirrors. `bun run pair` provisions both the existing
+  loopback-only for desktop mirrors. `bun run pair` provisions both the existing
   dev key and the app-specific offload key.
 - **Provider workers do not own PTYs.** They are destroyed on disconnect;
   `host/session.ts` runs in the durable Node terminal process. Keep the shared

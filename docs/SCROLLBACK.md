@@ -1,6 +1,6 @@
 # Local terminal history
 
-**The Mac owns terminal state; the 3DS owns its reading position.**
+**The companion owns terminal state; the 3DS owns its reading position.**
 libghostty parses PTY output in the durable Node session process. The live
 80×24 screen still arrives as an ordered, atomically committed grid. The
 device does not replay terminal escape sequences or mutate cached history.
@@ -18,7 +18,7 @@ rows occupy the half-open range `[first, end)`; live row `y` follows at
 row number. **Appending output never changes an existing historical key.**
 
 Ghostty's history accessor is newest-first. Its discarded-row counter plus
-retained count establishes absolute addresses; the Mac reads row `r` at
+retained count establishes absolute addresses; the companion reads row `r` at
 `end - 1 - r`. Tests use the pinned native core, including its page-based
 pruning, rather than assuming its configured limit is an exact row count.
 
@@ -62,7 +62,7 @@ Typing and cursor keys return to live; alternate screens disable history.
 
 | Budget | Limit |
 | --- | ---: |
-| Exposed Mac history | At most 2,000 rows per session |
+| Exposed companion history | At most 2,000 rows per session |
 | Device resident cache | 192 entries, each conservatively charged 64 KiB |
 | Current demand | 144 rows, visible rows pinned first |
 | Directional lookahead | Approximately 3:1 ahead versus behind |
@@ -76,7 +76,7 @@ Typing and cursor keys return to live; alternate screens disable history.
 | Read retries | 3 attempts, 45–180 frame backoff |
 
 The cache is in RAM and is not persisted to the SD card. Revisiting an
-evicted row needs the Mac; disconnected cache misses remain skeletons.
+evicted row needs the companion; disconnected cache misses remain skeletons.
 Failed reads use a distinct skeleton color and bounded retries.
 
 ## Glyph residency
@@ -89,7 +89,7 @@ glyphs without placing them in the atlas, so distant rows cannot evict the
 current viewport's glyphs merely by downloading.
 
 Visible interest is sent as an ordered, bounded batch and published on the
-Mac only when complete. A face retains up to 1,024 dynamic glyphs. Idle
+companion only when complete. A face retains up to 1,024 dynamic glyphs. Idle
 replicas stop requesting residency after 15 seconds. Several simultaneously
 active replicas can still contend for that finite atlas; this is not an
 unbounded Unicode cache. ASCII and terminal furniture live in the shipped

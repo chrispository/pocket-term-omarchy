@@ -3,7 +3,7 @@
 **The upstream BDF bytes are preserved in gzip archives.** Compression uses
 level 9 with no filename or timestamp in the header (`gzip -n -9`). The three
 sources occupy 353,333 bytes compressed instead of 3,303,564 bytes of text.
-The build tools and Mac rasterizer decompress them through
+The build tools and companion rasterizer decompress them through
 `shared/font-sources.ts`; the 3DS receives baked atlases. Regenerate the app's
 three terminal atlases with `bun scripts/font.ts` and verify reproduction
 with `bun scripts/font.ts --check`.
@@ -37,7 +37,7 @@ bitmap sources uses a thresholded JetBrains Mono outline. JetBrains Mono's
 SIL OFL notice is retained in
 `vendor/pocketjs/assets/fonts/LICENSE-JetBrainsMono.txt`.
 
-**Dynamic CJK is baked on the Mac from Fusion at 1:1 pixels.** Each glyph
+**Dynamic CJK is baked by the companion from Fusion at 1:1 pixels.** Each glyph
 keeps its terminal column width even when narrow and wide characters share
 an atlas. Characters outside Fusion's coverage use the existing system-font
 fallback chain; those outline fallbacks can still use antialiasing.

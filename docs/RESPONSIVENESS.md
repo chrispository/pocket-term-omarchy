@@ -5,12 +5,12 @@
 request in flight, containing up to eight ordered commands that fit the
 PocketJS offload record budget. `term.exchange` independently pulls screen
 fragments. A held output reply cannot prevent a new key from reaching the
-Mac. Retried commands retain their ids; a restarted delivery epoch discards
+companion. Retried commands retain their ids; a restarted delivery epoch discards
 uncertain input and cancels old tickets. A late callback from an older epoch
 cannot restore it.
 
 The 64-command queue remains bounded. A batch is admitted before sending any
-of it, and ids are validated before executing new commands. The Mac consumes
+of it, and ids are validated before executing new commands. The companion consumes
 rejected commands once and retains an error across subsequent commands in
 the same batch. **Key repeat does not drop or merge logical keystrokes.**
 

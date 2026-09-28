@@ -212,7 +212,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
         store={store}
         metrics={{ cols: COLS, rows: ROWS, cellW: CELL_W, cellH: CELL_H, track: TRACK, statusH: STATUS_H }}
         badge={`${COLS}×${ROWS}`}
-        hint="Connect the paired Mac to continue"
+        hint="Connect the paired companion to continue"
         emptyHint="SELECT opens one · or tap + on the touch screen"
         title="POCKET TERM"
       />
@@ -308,7 +308,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
           </Show>
 
           <Show when={settingsOpen()}>
-            <TermSettings font={fontIndex()} speed={scrollSpeed()} preview={preview()} status={store.conn() === "live" ? store.hostName() : "Waiting for paired Mac"}
+            <TermSettings font={fontIndex()} speed={scrollSpeed()} preview={preview()} status={store.conn() === "live" ? store.hostName() : "Waiting for paired host"}
               onFont={n => { setFontIndex(n); loadTerminalFont(FONT_NAMES[n]); }}
               onSpeed={setScrollSpeed} onPreview={on => { setPreview(on); store.setPreview(on); }} onClose={() => setSettingsOpen(false)} />
           </Show>

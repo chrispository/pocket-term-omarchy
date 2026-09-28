@@ -1,5 +1,5 @@
 // shared/protocol.ts — the terminal wire protocol, shared verbatim by the
-// guest app (this directory) and the Mac companion daemon (host/serve.ts).
+// guest app (this directory) and the desktop companion daemon (host/serve.ts).
 //
 // The terminal worker emits bounded JSON lines
 // carried by authenticated offload exchanges (3DS) or loopback svc mirrors.

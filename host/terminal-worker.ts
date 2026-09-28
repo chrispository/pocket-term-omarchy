@@ -10,7 +10,7 @@ import { LIMITS, type ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY, type HistoryRequest, type HistoryBatchRequest } from "../shared/history.ts";
 import { historyBatchReply, validateHistoryBatch } from "./history-batch.ts";
 import { hostname } from "node:os";
-import { chmodSync, existsSync, statSync } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants, existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -50,10 +50,28 @@ const ROOT = resolve(HERE, "..");
 const MIRROR_BIN = join(ROOT, "vendor/pocketjs/hosts/desktop/target/release/pocket-desktop-host");
 const MIRROR_APP = "pocketterm-mirror-main";
 
+function chooseDefaultShell(): string {
+  const candidates = [
+    process.env.SHELL,
+    process.platform === "darwin" ? "/bin/zsh" : "/bin/bash",
+    "/bin/sh",
+  ];
+  for (const shell of candidates) {
+    if (!shell) continue;
+    try {
+      accessSync(shell, fsConstants.X_OK);
+      return shell;
+    } catch {
+      // A stale SHELL environment variable should not keep the companion from starting.
+    }
+  }
+  throw new Error("No executable shell found; pass --shell <path>");
+}
+
 const options = {
   port: WIRE_PORT,
   name: hostname().replace(/\.local$/, ""),
-  shell: process.env.SHELL ?? "/bin/zsh",
+  shell: chooseDefaultShell(),
   cwd: process.env.HOME ?? process.cwd(),
   login: true,
   trace: false,
@@ -698,16 +716,15 @@ setInterval(flushAll, FLUSH_IDLE_MS);
 const mirrors = new Map<number, ChildProcess>();
 const mirrorListeners = new Map<number, ReturnType<typeof createServer>>();
 
-/** Open the desktop window for a session. The window is an ordinary
- *  PocketJS app (mirror/) on the stock desktop host, pointed at this
- *  daemon with --svc-connect; the listener binds it to its session. Nothing here is macOS-specific — the same binary is the linux-app
- *  host. */
+/** Open a desktop window for a session. The window is an ordinary PocketJS
+ *  app (mirror/) on the stock desktop host, pointed at this daemon with
+ *  --svc-connect; the listener binds it to its session. */
 function openMirror(sid: number, tcpPort: number): void {
   if (!options.mirror) return;
   if (!existsSync(MIRROR_BIN)) {
     console.log(
       `[term] no mirror window: ${MIRROR_BIN} is not built ` +
-        `(bun run macos term-mirror --build-only), continuing without one`,
+        `(run bun run mirror to build it), continuing without one`,
     );
     options.mirror = false;
     return;

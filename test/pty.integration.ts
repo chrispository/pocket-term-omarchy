@@ -14,7 +14,7 @@ import type { ExchangeReply, ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY_BATCH, type HistoryManifest, type HistoryReply, type HistoryBatchReply } from "../shared/history.ts";
 import { createCursorStick } from "../app/stick.ts";
 
-test("real macOS PTYs: multiplex, resumable history, vim/nano cursor keys and VT modes", { timeout: 45000 }, async () => {
+test("real host PTYs: multiplex, resumable history, vim/nano cursor keys and VT modes", { timeout: 45000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "pocket-term-pty-"));
   const worker = fork(fileURLToPath(new URL("../host/terminal-worker.ts", import.meta.url)), ["--port", "0", "--no-mirror", "--no-beacon", "--no-login", "--shell", "/bin/sh", "--cwd", directory], {
     env: { ...process.env, HOME: directory }, stdio: ["ignore", "pipe", "pipe", "ipc"],
