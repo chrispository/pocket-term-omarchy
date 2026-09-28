@@ -1,3 +1,5 @@
+# work in progress - trying to port to omarchy
+
 # Pocket Term
 
 Pocket Term is a **Nintendo 3DS terminal client for macOS**. Open independent
