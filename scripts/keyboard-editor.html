@@ -50,6 +50,20 @@
   #layers button.on { background: #1f2735; color: var(--ink); border-color: #3a4658; }
   #layers .shared { margin-left: auto; color: var(--dim); font-size: 12px; align-self: center; }
 
+  #layoutBar { display: flex; gap: 6px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  #layoutBar .lbl { color: var(--dim); margin-right: 2px; }
+  #layoutBar .lay.on { background: #2f6fbe; border-color: #4c9bf5; }
+  #layoutBar .lay .star { color: #ffd479; margin-left: 4px; }
+  #layoutBar .opts { margin-left: auto; display: flex; gap: 14px; align-items: center; color: var(--dim); }
+  #layoutBar .opts label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  #layoutBar input[type=range] { width: 90px; }
+  .gapk { position: absolute; border: 1px dashed #3d4a5e; border-radius: calc(4px * var(--s)); display: flex; align-items: center;
+    justify-content: center; color: #4d5a6e; font-size: calc(7px * var(--s)); }
+  .gapk.sel { border: 2px solid var(--accent); }
+  .reach { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 5;
+    background: rgba(95, 201, 139, .10); border: 2px solid rgba(95, 201, 139, .55); border-radius: 6px; }
+  .cap.big { font-size: calc(14px * var(--s)); }
+  #reachStat { color: var(--dim); }
   #stageWrap { display: flex; gap: 14px; align-items: flex-start; }
   /* The 3DS bottom panel at an integer scale; everything inside is placed
      in device pixels times --s. */
@@ -126,6 +140,14 @@
 </header>
 <main>
   <div id="stageCol" class="edit">
+    <div id="layoutBar">
+      <span class="lbl">Layout</span><span id="layoutBtns"></span>
+      <div class="opts">
+        <label title="Preview with the touchpad shown (26 px rows) or hidden (taller rows)"><input type="checkbox" id="optTouchpad"> Touchpad</label>
+        <label title="Shade where your thumbs rest while holding the 3DS"><input type="checkbox" id="optReach"> Thumb reach</label>
+        <input type="range" id="reachPx" min="48" max="160" step="4" title="Reach from each edge, in device pixels">
+      </div>
+    </div>
     <div id="layers"></div>
     <div id="stageWrap">
       <div id="screen">
@@ -138,6 +160,7 @@
     <div id="below">
       <button id="addRow">+ Row in this layer</button>
       <span class="hint">Drag a key to move it (also between rows), drag its right edge to resize.</span>
+      <span id="reachStat"></span>
     </div>
     <div id="tryOut">
       <h2 class="hint" style="margin:0 0 6px">What the terminal would receive</h2>
@@ -152,6 +175,7 @@
   <aside>
     <section id="keySec"><h2>Key</h2><div id="keyPanel"></div></section>
     <section id="layerSec"><h2>Layer</h2><div id="layerPanel"></div></section>
+    <section id="layoutSec"><h2>Layout</h2><div id="layoutPanel"></div></section>
     <section id="problems"><h2>Checks</h2><ul id="probList"></ul></section>
     <section>
       <h2>Build &amp; install</h2>
@@ -167,7 +191,7 @@
       <div class="keys">
         <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> select ·
         <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> move key<br>
-        <kbd>[</kbd> <kbd>]</kbd> width −/+ ¼ ·
+        <kbd>[</kbd> <kbd>]</kbd> width −/+ ⅛ ·
         <kbd>Del</kbd> remove · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate<br>
         <kbd>Enter</kbd> edit label · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
       </div>
@@ -178,9 +202,18 @@
 
 <script>
 // Device geometry, mirrored from shared/keyboard.ts and app/keyboard.tsx.
-const KEY_H = 26, UNIT = 32, PANEL_W = 320, PANEL_H = 240, KEY_LIP = 2, SNAP = 0.25;
+const BASE_KEY_H = 26, TAB_H = 26, UNIT = 32, PANEL_W = 320, PANEL_H = 240, KEY_LIP = 2, SNAP = 0.125;
 
-let layout = null, keyNames = [], savedJson = "";
+let config = null, layout = null, layoutName = "", keyNames = [], savedJson = "";
+let showTouchpad = true;
+let showReach = localStorage.getItem("pt-reach") !== "0";
+let reachPx = +(localStorage.getItem("pt-reach-px") || 96);
+function useLayout(name) {
+  layoutName = config.layouts[name] ? name : Object.keys(config.layouts)[0];
+  layout = config.layouts[layoutName];
+  if (!layout.layers[layer]) layer = "lower";
+}
+const dirty = () => config && JSON.stringify(config) !== savedJson;
 let layer = "lower";
 /** Selection: row 0 is the shared action strip, rows 1.. are the layer's. */
 let sel = null; // { row, index }
@@ -194,6 +227,8 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 function rows() { return [layout.actionRow, ...(layout.layers[layer] || [])]; }
+/** Row height as keyboardGeometry in shared/keyboard.ts computes it. */
+function kh() { return showTouchpad ? BASE_KEY_H : Math.floor((PANEL_H - TAB_H - 4) / kbRows()); }
 function kbRows() { return 1 + Math.max(0, ...Object.values(layout.layers).map((r) => r.length)); }
 function units(row) { return row.reduce((s, d) => s + d.w, 0); }
 function selDef() { return sel && rows()[sel.row] ? rows()[sel.row][sel.index] : null; }
@@ -203,16 +238,16 @@ function selDef() { return sel && rows()[sel.row] ? rows()[sel.row][sel.index] :
 function snapshot(tag) {
   const now = Date.now();
   if (tag && tag === lastPushTag && now - lastPushAt < 1200) { lastPushAt = now; return; }
-  undoStack.push(JSON.stringify({ layout, layer, sel }));
+  undoStack.push(JSON.stringify({ config, layoutName, layer, sel }));
   if (undoStack.length > 300) undoStack.shift();
   redoStack.length = 0;
   lastPushTag = tag; lastPushAt = now;
 }
 function restore(from, to) {
   if (!from.length) return;
-  to.push(JSON.stringify({ layout, layer, sel }));
+  to.push(JSON.stringify({ config, layoutName, layer, sel }));
   const s = JSON.parse(from.pop());
-  layout = s.layout; layer = s.layer; sel = s.sel; lastPushTag = null;
+  config = s.config; layer = s.layer; useLayout(s.layoutName); sel = s.sel; lastPushTag = null;
   changed();
 }
 
@@ -231,10 +266,66 @@ function fitScale() {
 function render() {
   if (!layout.layers[layer]) layer = Object.keys(layout.layers)[0];
   if (sel && !selDef()) sel = null;
-  $("hdr").classList.toggle("is-dirty", JSON.stringify(layout) !== savedJson);
+  $("hdr").classList.toggle("is-dirty", dirty());
   $("undo").disabled = !undoStack.length; $("redo").disabled = !redoStack.length;
   $("stageCol").className = mode;
-  renderLayers(); renderStage(); renderKeyPanel(); renderLayerPanel(); renderActual();
+  renderLayoutBar(); renderLayers(); renderStage(); renderKeyPanel(); renderLayerPanel(); renderLayoutPanel(); renderActual();
+}
+
+function renderLayoutBar() {
+  const el = $("layoutBtns"); el.innerHTML = "";
+  for (const name of Object.keys(config.layouts)) {
+    const b = document.createElement("button");
+    b.className = "lay" + (name === layoutName ? " on" : "");
+    b.innerHTML = esc(name) + (name === config.defaults.layout ? `<span class="star" title="the 3DS starts with this layout">★</span>` : "");
+    b.onclick = () => { useLayout(name); sel = null; tryState.ctrl = tryState.alt = false; if (mode === "try") layer = "lower"; render(); };
+    el.append(b); el.append(" ");
+  }
+  const add = btn("+", "New layout (a copy of this one)", () => newLayout());
+  el.append(add);
+  $("optTouchpad").checked = showTouchpad;
+  $("optReach").checked = showReach;
+  $("reachPx").value = reachPx; $("reachPx").disabled = !showReach;
+}
+
+function renderLayoutPanel() {
+  const p = $("layoutPanel"), isDefault = config.defaults.layout === layoutName, n = Object.keys(config.layouts).length;
+  p.innerHTML = `
+    <div class="field"><label for="fYname">Name</label><input id="fYname" value="${esc(layoutName)}"></div>
+    <div class="field"><label>On the 3DS</label><div>${isDefault ? "★ starts with this layout" : `<button id="yDefault">Start with this layout</button>`}</div></div>
+    <div class="field"><label for="fYtp">Touchpad</label><div><input id="fYtp" type="checkbox" ${config.defaults.touchpad ? "checked" : ""}> <span class="hint">shown at start</span></div></div>
+    <p class="hint" style="margin:0 0 10px">Both can be changed on the 3DS under settings → Keyboard and Touchpad; they reset to these when the app restarts.</p>
+    <div class="row"><button id="yDup">Duplicate layout</button><button id="yDel" class="danger" ${n < 2 ? "disabled" : ""}>Delete layout</button></div>`;
+  $("fYname").onchange = (e) => renameLayout(layoutName, e.target.value.trim());
+  if ($("yDefault")) $("yDefault").onclick = () => { snapshot(); config.defaults.layout = layoutName; changed(); };
+  $("fYtp").onchange = (e) => { snapshot(); config.defaults.touchpad = e.target.checked; changed(); };
+  $("yDup").onclick = () => newLayout();
+  $("yDel").onclick = () => {
+    if (!confirm(`Delete layout “${layoutName}”?`)) return;
+    snapshot(); delete config.layouts[layoutName];
+    if (!config.layouts[config.defaults.layout]) config.defaults.layout = Object.keys(config.layouts)[0];
+    useLayout(config.defaults.layout); sel = null; changed();
+  };
+}
+
+function newLayout() {
+  let n = 2; while (config.layouts[layoutName + n]) n++;
+  const name = prompt("Name for the new layout (starts as a copy of this one)", layoutName + n);
+  if (!name) return;
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name) || config.layouts[name]) { toast("That name is taken or not a plain identifier"); return; }
+  snapshot(); config.layouts[name] = clone(layout); useLayout(name); sel = null; changed();
+}
+
+function renameLayout(from, to) {
+  if (!to || to === from) return render();
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(to)) { toast("Layout names are letters, digits, - and _"); return render(); }
+  if (config.layouts[to]) { toast(`“${to}” already exists`); return render(); }
+  snapshot();
+  const next = {};
+  for (const [n, l] of Object.entries(config.layouts)) next[n === from ? to : n] = l;
+  config.layouts = next;
+  if (config.defaults.layout === from) config.defaults.layout = to;
+  useLayout(to); changed();
 }
 
 function renderLayers() {
@@ -263,9 +354,10 @@ function renderStage() {
   const screen = $("screen"), plate = $("plate");
   screen.style.setProperty("--s", S);
   screen.style.width = PANEL_W * S + "px"; screen.style.height = PANEL_H * S + "px";
-  const nRows = kbRows(), kbH = nRows * KEY_H;
+  const nRows = kbRows(), kbH = nRows * kh();
   plate.style.height = kbH * S + "px";
   $("above").style.height = (PANEL_H - kbH) * S + "px";
+  $("above").querySelector(".pad").style.visibility = showTouchpad ? "visible" : "hidden";
   plate.innerHTML = "";
   const all = rows();
   for (let r = 0; r < nRows; r++) {
@@ -273,7 +365,7 @@ function renderStage() {
     if (!row) continue;
     if (row.length === 0) {
       const e = document.createElement("div"); e.className = "emptyRow";
-      Object.assign(e.style, { left: 2 * S + "px", top: (r * KEY_H + 2) * S + "px", width: (PANEL_W - 4) * S + "px", height: (KEY_H - 4) * S + "px" });
+      Object.assign(e.style, { left: 2 * S + "px", top: (r * kh() + 2) * S + "px", width: (PANEL_W - 4) * S + "px", height: (kh() - 4) * S + "px" });
       e.textContent = "empty row — click to add a key";
       e.onclick = () => { if (mode !== "edit") return; snapshot(); row.push(newKey()); sel = { row: r, index: 0 }; changed(); };
       plate.append(e);
@@ -281,18 +373,32 @@ function renderStage() {
     }
     let x = 0;
     row.forEach((def, i) => {
+      if ("gap" in def.act) {
+        // Dead space: outlined while editing so it can be picked and resized.
+        if (mode === "edit") {
+          const gk = document.createElement("div");
+          gk.className = "sock gapk" + (sel && sel.row === r && sel.index === i ? " sel" : "");
+          gk.dataset.r = r; gk.dataset.i = i;
+          Object.assign(gk.style, { left: (x * UNIT + 2) * S + "px", top: (r * kh() + 2) * S + "px", width: Math.max(1, def.w * UNIT - 4) * S + "px", height: (kh() - 4) * S + "px", background: "none" });
+          gk.textContent = "gap";
+          const g = document.createElement("div"); g.className = "grip"; gk.append(g);
+          plate.append(gk);
+        }
+        x += def.w;
+        return;
+      }
       const sock = document.createElement("div");
       sock.className = "sock" + (sel && sel.row === r && sel.index === i && mode === "edit" ? " sel" : "");
       sock.dataset.r = r; sock.dataset.i = i;
       Object.assign(sock.style, {
-        left: (x * UNIT + 2) * S + "px", top: (r * KEY_H + 2) * S + "px",
-        width: Math.max(1, def.w * UNIT - 4) * S + "px", height: (KEY_H - 4) * S + "px",
+        left: (x * UNIT + 2) * S + "px", top: (r * kh() + 2) * S + "px",
+        width: Math.max(1, def.w * UNIT - 4) * S + "px", height: (kh() - 4) * S + "px",
       });
       const { armed, down } = capState(def, r, i);
       const cap = document.createElement("div");
-      cap.className = "cap" + (def.dark ? " dark" : "") + (down ? " down" : "") + (armed ? " armed" : "");
+      cap.className = "cap" + (def.dark ? " dark" : "") + (down ? " down" : "") + (armed ? " armed" : "") + (kh() >= 34 ? " big" : "");
       cap.style.top = (down ? KEY_LIP : 0) * S + "px";
-      cap.style.height = (KEY_H - 4 - KEY_LIP) * S + "px";
+      cap.style.height = (kh() - 4 - KEY_LIP) * S + "px";
       cap.textContent = def.label;
       sock.append(cap);
       if (mode === "edit") { const g = document.createElement("div"); g.className = "grip"; g.title = "Drag to resize"; sock.append(g); }
@@ -302,11 +408,33 @@ function renderStage() {
     const u = units(row);
     if (u < 10 - 1e-9) {
       const gap = document.createElement("div"); gap.className = "gapfill";
-      Object.assign(gap.style, { left: (u * UNIT + 2) * S + "px", top: (r * KEY_H + 2) * S + "px", width: Math.max(0, (10 - u) * UNIT - 4) * S + "px", height: (KEY_H - 4) * S + "px" });
+      Object.assign(gap.style, { left: (u * UNIT + 2) * S + "px", top: (r * kh() + 2) * S + "px", width: Math.max(0, (10 - u) * UNIT - 4) * S + "px", height: (kh() - 4) * S + "px" });
       plate.append(gap);
     }
   }
+  renderReach();
   renderGutter(nRows, kbH);
+}
+
+/** Shade the edge bands a thumb covers, and count the keys centred in them. */
+function renderReach() {
+  const plate = $("plate");
+  let inside = 0, total = 0;
+  rows().forEach((row) => {
+    let x = 0;
+    for (const def of row) {
+      const cx = (x + def.w / 2) * UNIT;
+      if (!("gap" in def.act)) { total++; if (cx <= reachPx || cx >= PANEL_W - reachPx) inside++; }
+      x += def.w;
+    }
+  });
+  $("reachStat").textContent = showReach ? `· ${inside} of ${total} keys on this layer are centred within thumb reach` : "";
+  if (!showReach) return;
+  for (const left of [0, PANEL_W - reachPx]) {
+    const z = document.createElement("div"); z.className = "reach";
+    z.style.left = left * S + "px"; z.style.width = reachPx * S + "px";
+    plate.append(z);
+  }
 }
 
 function renderGutter(nRows, kbH) {
@@ -317,7 +445,7 @@ function renderGutter(nRows, kbH) {
     const row = all[r]; if (!row) continue;
     const u = units(row);
     const d = document.createElement("div"); d.className = "g";
-    d.style.top = top0 + r * KEY_H * S + "px"; d.style.height = KEY_H * S + "px";
+    d.style.top = top0 + r * kh() * S + "px"; d.style.height = kh() * S + "px";
     const cls = Math.abs(u - 10) < 1e-9 ? "ok" : u < 10 ? "short" : "over";
     d.innerHTML = `<span class="lbl">${r === 0 ? "shared" : "row " + r}</span><span class="units u-${cls}" title="width in units; a row holds 10">${+u.toFixed(3)}/10</span>`;
     if (mode === "edit") {
@@ -340,17 +468,18 @@ function btn(text, title, onclick) {
 
 function renderActual() {
   // A 1:1 preview: the keyboard as it will sit on the physical 320-px panel.
-  const c = $("actualCanvas"), kbH = kbRows() * KEY_H, dpr = window.devicePixelRatio || 1;
+  const c = $("actualCanvas"), kbH = kbRows() * kh(), dpr = window.devicePixelRatio || 1;
   c.width = PANEL_W * dpr; c.height = kbH * dpr; c.style.width = PANEL_W + "px"; c.style.height = kbH + "px";
   const g = c.getContext("2d"); g.scale(dpr, dpr);
   const pg = g.createLinearGradient(0, 0, 0, kbH);
   pg.addColorStop(0, "#2a323e"); pg.addColorStop(0.06, "#161c26"); pg.addColorStop(1, "#10151d");
   g.fillStyle = pg; g.fillRect(0, 0, PANEL_W, kbH);
-  g.textAlign = "center"; g.textBaseline = "middle"; g.font = "12px KeyInter, sans-serif";
+  g.textAlign = "center"; g.textBaseline = "middle"; g.font = (kh() >= 34 ? "14px" : "12px") + " KeyInter, sans-serif";
   rows().forEach((row, r) => {
     let x = 0;
     for (const def of row) {
-      const sx = x * UNIT + 2, sy = r * KEY_H + 2, w = def.w * UNIT - 4, h = KEY_H - 4;
+      if ("gap" in def.act) { x += def.w; continue; }
+      const sx = x * UNIT + 2, sy = r * kh() + 2, w = def.w * UNIT - 4, h = kh() - 4;
       g.fillStyle = "#080b11"; rr(g, sx, sy, w, h); g.fill();
       const cg = g.createLinearGradient(0, sy, 0, sy + h - KEY_LIP);
       const stops = def.dark ? ["#4b5768", "#2a323d", "#1c222b"] : ["#5f6c7f", "#3a4351", "#2a323e"];
@@ -372,6 +501,7 @@ function describe(act) {
   if ("key" in act) return "key";
   if ("layer" in act) return "layer";
   if ("mod" in act) return act.mod === "ctrl" ? "ctrl-mod" : act.mod;
+  if ("gap" in act) return "gap";
   return "settings";
 }
 
@@ -384,8 +514,9 @@ function renderKeyPanel() {
   p.innerHTML = `
     <div class="field"><label for="fLabel">Label</label><input id="fLabel" value="${esc(def.label)}"></div>
     <div class="field"><label for="fW">Width</label>
-      <div class="row" style="flex-wrap:nowrap"><input id="fWr" type="range" min="0.25" max="10" step="0.25" value="${def.w}" style="flex:1">
-      <input id="fW" type="number" min="0.25" max="10" step="0.25" value="${def.w}" style="width:66px"></div></div>
+      <div class="row" style="flex-wrap:nowrap"><input id="fWr" type="range" min="0.125" max="10" step="0.125" value="${def.w}" style="flex:1">
+      <input id="fW" type="number" min="0.125" max="10" step="0.125" value="${def.w}" style="width:74px"></div></div>
+    <p class="hint" id="wPx" style="margin:-4px 0 8px 86px">${def.w * UNIT - 4} px cap, ${def.w * UNIT} px slot · 1 unit = 32 px</p>
     <div class="field"><label for="fKind">Does</label><select id="fKind">
       <option value="text" ${kind === "text" ? "selected" : ""}>Types text</option>
       <option value="ctrl" ${kind === "ctrl" ? "selected" : ""}>Sends Ctrl + character</option>
@@ -395,6 +526,7 @@ function renderKeyPanel() {
       <option value="ctrl-mod" ${kind === "ctrl-mod" ? "selected" : ""}>Ctrl modifier (one-shot)</option>
       <option value="alt" ${kind === "alt" ? "selected" : ""}>Alt modifier (one-shot)</option>
       <option value="settings" ${kind === "settings" ? "selected" : ""}>Opens settings</option>
+      <option value="gap" ${kind === "gap" ? "selected" : ""}>Gap (empty, ignores touches)</option>
     </select></div>
     ${"ch" in def.act ? `<div class="field"><label for="fCh">${kind === "ctrl" ? "Character" : "Text"}</label><input id="fCh" value="${esc(def.act.ch)}"></div>` : ""}
     ${"key" in def.act ? `<div class="field"><label for="fKey">Key</label><select id="fKey">${keyOpts}</select></div>` : ""}
@@ -408,7 +540,7 @@ function renderKeyPanel() {
     <p class="hint" style="margin:10px 0 0">${sel.row === 0 ? "This key is in the shared top row: it appears on every layer." : `Row ${sel.row} of the “${esc(layer)}” layer.`}</p>`;
 
   $("fLabel").oninput = (e) => { snapshot("label"); selDef().label = e.target.value; changed(true); };
-  const setW = (v) => { v = Math.max(SNAP, Math.min(10, Math.round(v / SNAP) * SNAP)); if (!isFinite(v)) return; snapshot("w"); selDef().w = v; changed(true); $("fW").value = v; $("fWr").value = v; };
+  const setW = (v) => { v = Math.max(1 / UNIT, Math.min(10, Math.round(v * UNIT) / UNIT)); if (!isFinite(v)) return; snapshot("w"); selDef().w = v; changed(true); $("fW").value = v; $("fWr").value = v; $("wPx").textContent = `${v * UNIT - 4} px cap, ${v * UNIT} px slot · 1 unit = 32 px`; };
   $("fW").onchange = (e) => setW(+e.target.value);
   $("fWr").oninput = (e) => setW(+e.target.value);
   $("fKind").onchange = (e) => { snapshot(); setKind(selDef(), e.target.value); changed(); };
@@ -437,7 +569,9 @@ function setKind(def, kind) {
   else if (kind === "shift") def.act = { mod: "shift" };
   else if (kind === "ctrl-mod") def.act = { mod: "ctrl" };
   else if (kind === "alt") def.act = { mod: "alt" };
+  else if (kind === "gap") { def.act = { gap: true }; def.label = ""; delete def.dark; }
   else def.act = { settings: true };
+  if (kind !== "gap" && def.label === "") def.label = "?";
 }
 
 function renderLayerPanel() {
@@ -545,7 +679,7 @@ $("plate").addEventListener("pointermove", (e) => {
     const t = dropTarget(e); const c = $("caret");
     if (!t) { c.style.display = "none"; drag.target = null; return; }
     drag.target = t;
-    Object.assign(c.style, { display: "block", left: t.px * S - 1 + "px", top: (PANEL_H - kbRows() * KEY_H + t.row * KEY_H + 2) * S + "px", height: (KEY_H - 4) * S + "px" });
+    Object.assign(c.style, { display: "block", left: t.px * S - 1 + "px", top: (PANEL_H - kbRows() * kh() + t.row * kh() + 2) * S + "px", height: (kh() - 4) * S + "px" });
   }
 });
 $("plate").addEventListener("pointerup", () => {
@@ -572,7 +706,7 @@ $("plate").addEventListener("pointerup", () => {
 function dropTarget(e) {
   const box = $("plate").getBoundingClientRect();
   const x = (e.clientX - box.left) / S, y = (e.clientY - box.top) / S;
-  const r = Math.floor(y / KEY_H), row = rows()[r];
+  const r = Math.floor(y / kh()), row = rows()[r];
   if (!row) return null;
   let at = 0, px = 0;
   for (let i = 0; i < row.length; i++) {
@@ -590,6 +724,7 @@ const tryState = { layer: "lower", ctrl: false, alt: false, pressed: null, out: 
 /** The device's press handler (app/keyboard.tsx), reporting instead of sending. */
 function tryPress(r, i) {
   const def = rows()[r][i], act = def.act;
+  if ("gap" in act) return;
   tryState.pressed = `${r}:${i}`;
   setTimeout(() => { tryState.pressed = null; renderStage(); }, 110);
   const shifted = layer === "upper";
@@ -623,14 +758,14 @@ $("clearOut").onclick = () => { tryState.out = []; renderOut(); };
 
 let checkTimer = 0;
 function changed(soft) {
-  if (soft) { renderStage(); renderActual(); $("hdr").classList.toggle("is-dirty", JSON.stringify(layout) !== savedJson); $("undo").disabled = !undoStack.length; }
+  if (soft) { renderStage(); renderActual(); $("hdr").classList.toggle("is-dirty", dirty()); $("undo").disabled = !undoStack.length; }
   else render();
   clearTimeout(checkTimer);
   checkTimer = setTimeout(runCheck, 250);
 }
 
 async function runCheck() {
-  const res = await fetch("/api/check", { method: "POST", body: JSON.stringify(layout) });
+  const res = await fetch("/api/check", { method: "POST", body: JSON.stringify(config) });
   showChecks(await res.json());
 }
 function showChecks({ errors = [], warnings = [] }) {
@@ -644,17 +779,18 @@ function showChecks({ errors = [], warnings = [] }) {
 async function load() {
   const res = await fetch("/api/layout"), data = await res.json();
   if (data.error) { toast(data.error); return; }
-  layout = data.layout; keyNames = data.keyNames; savedJson = JSON.stringify(layout);
+  config = data.config; keyNames = data.keyNames; savedJson = JSON.stringify(config);
+  showTouchpad = config.defaults.touchpad; useLayout(layoutName || config.defaults.layout);
   undoStack.length = 0; redoStack.length = 0; sel = null;
   showChecks(data.check); render();
 }
 
 async function save() {
-  const res = await fetch("/api/layout", { method: "POST", body: JSON.stringify(layout) });
+  const res = await fetch("/api/layout", { method: "POST", body: JSON.stringify(config) });
   const data = await res.json();
   showChecks(data);
   if (!data.saved) { toast("Not saved: fix the errors under Checks"); return false; }
-  savedJson = JSON.stringify(layout); render(); toast(`Saved ${data.file}`);
+  savedJson = JSON.stringify(config); render(); toast(`Saved ${data.file}`);
   return true;
 }
 
@@ -673,11 +809,14 @@ async function run(path, body) {
 }
 
 $("save").onclick = save;
-$("revert").onclick = () => { if (JSON.stringify(layout) === savedJson || confirm("Discard unsaved changes and reload the file?")) load(); };
+$("revert").onclick = () => { if (!dirty() || confirm("Discard unsaved changes and reload the file?")) load(); };
 $("undo").onclick = () => restore(undoStack, redoStack);
 $("redo").onclick = () => restore(redoStack, undoStack);
 $("addRow").onclick = () => { snapshot(); layout.layers[layer].push([newKey()]); sel = { row: layout.layers[layer].length, index: 0 }; changed(); };
 $("build").onclick = async () => { if (await save()) run("/api/build"); };
+$("optTouchpad").onchange = (e) => { showTouchpad = e.target.checked; render(); };
+$("optReach").onchange = (e) => { showReach = e.target.checked; localStorage.setItem("pt-reach", showReach ? "1" : "0"); render(); };
+$("reachPx").oninput = (e) => { reachPx = +e.target.value; localStorage.setItem("pt-reach-px", reachPx); renderStage(); };
 $("ip").value = localStorage.getItem("pt-ip") || "";
 $("ftpPort").value = localStorage.getItem("pt-ftp") || "5000";
 $("deploy").onclick = () => {
@@ -723,7 +862,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("resize", () => { const s = S; fitScale(); if (s !== S) render(); });
-window.addEventListener("beforeunload", (e) => { if (layout && JSON.stringify(layout) !== savedJson) e.preventDefault(); });
+window.addEventListener("beforeunload", (e) => { if (dirty()) e.preventDefault(); });
 fitScale();
 document.fonts.load("12px KeyInter").finally(load);
 </script>

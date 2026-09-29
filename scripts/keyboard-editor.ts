@@ -1,6 +1,6 @@
 // bun run keyboard [--port 5175] — a browser editor for the touch keyboard.
 //
-// Serves scripts/keyboard-editor.html on loopback. The page edits the layout
+// Serves scripts/keyboard-editor.html on loopback. The page edits the layouts
 // in memory; saving sends it back here, where it is checked with the same
 // rules as shared/keyboard.ts and written to app/keyboard-layout.ts as source.
 // The build then bakes the labels like any other literal. Build and deploy
@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import opentype from "opentype.js";
 import { DEFAULT_REGULAR } from "../vendor/pocketjs/framework/compiler/bake-font.ts";
-import { KEY_NAMES, checkLayout, layoutSource, type KeyboardLayout } from "../shared/keyboard.ts";
+import { KEY_NAMES, checkConfig, configSource, type KeyboardConfig } from "../shared/keyboard.ts";
 import { ROOT } from "./paths.ts";
 
 const LAYOUT_FILE = resolve(ROOT, "app/keyboard-layout.ts");
@@ -24,17 +24,19 @@ const port = Number(argv.includes("--port") ? argv[argv.indexOf("--port") + 1] :
 const fontBytes = readFileSync(DEFAULT_REGULAR);
 const font = opentype.parse(fontBytes.buffer.slice(fontBytes.byteOffset, fontBytes.byteOffset + fontBytes.byteLength));
 
-async function loadLayout(): Promise<KeyboardLayout> {
+async function loadConfig(): Promise<KeyboardConfig> {
   // A query string gives each read its own module instance, so edits made to
   // the file by hand since the last read are picked up.
-  return (await import(`${LAYOUT_FILE}?v=${Date.now()}`)).KEYBOARD_LAYOUT;
+  return (await import(`${LAYOUT_FILE}?v=${Date.now()}`)).KEYBOARD;
 }
 
-function check(layout: KeyboardLayout) {
-  const result = checkLayout(layout);
+function check(config: KeyboardConfig) {
+  const result = checkConfig(config);
   const missing = new Set<string>();
-  for (const row of [layout.actionRow, ...Object.values(layout.layers).flat()]) {
-    for (const def of row) for (const ch of def.label) if (font.charToGlyphIndex(ch) <= 0) missing.add(ch);
+  for (const layout of Object.values(config.layouts)) {
+    for (const row of [layout.actionRow, ...Object.values(layout.layers).flat()]) {
+      for (const def of row) for (const ch of def.label) if (font.charToGlyphIndex(ch) <= 0) missing.add(ch);
+    }
   }
   if (missing.size) {
     result.warnings.push(`the key font has no glyph for ${[...missing].map((ch) => `"${ch}" (U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`).join(", ")}; it will draw as a box`);
@@ -94,17 +96,17 @@ const server = serve({
         return new Response(fontBytes, { headers: { "content-type": "font/ttf" } });
       }
       if (req.method === "GET" && url.pathname === "/api/layout") {
-        const layout = await loadLayout();
-        return json({ layout, keyNames: KEY_NAMES, check: check(layout) });
+        const config = await loadConfig();
+        return json({ config, keyNames: KEY_NAMES, check: check(config) });
       }
       if (req.method === "POST" && url.pathname === "/api/check") {
-        return json(check(await req.json() as KeyboardLayout));
+        return json(check(await req.json() as KeyboardConfig));
       }
       if (req.method === "POST" && url.pathname === "/api/layout") {
-        const layout = await req.json() as KeyboardLayout;
-        const result = check(layout);
+        const config = await req.json() as KeyboardConfig;
+        const result = check(config);
         if (result.errors.length) return json({ saved: false, ...result }, 422);
-        writeFileSync(LAYOUT_FILE, layoutSource(layout));
+        writeFileSync(LAYOUT_FILE, configSource(config));
         return json({ saved: true, file: "app/keyboard-layout.ts", ...result });
       }
       if (req.method === "POST" && url.pathname === "/api/build") {

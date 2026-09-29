@@ -10,20 +10,14 @@
 // one-shot: they arm, the next key consumes them — the classic touch-phone
 // convention, and the only one that works with a single resistive contact.
 
-import { createMemo, createSignal, For } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { onFrame } from "@pocketjs/framework/lifecycle";
-import { KEY_H, UNIT, layerRows, type KeyDef, type LayerName } from "../shared/keyboard.ts";
-import { KEYBOARD_LAYOUT } from "./keyboard-layout.ts";
+import { KEY_H, UNIT, type KeyboardLayout, type KeyDef, type LayerName } from "../shared/keyboard.ts";
 
 export { KEY_H };
 export type { KeyAction, LayerName } from "../shared/keyboard.ts";
-
-/** The action strip plus the tallest layer; shorter layers leave a gap. */
-export const KB_ROWS = 1 + layerRows(KEYBOARD_LAYOUT);
-export const KB_H = KEY_H * KB_ROWS;
-const ROW_INDICES = Array.from({ length: KB_ROWS }, (_, row) => row);
 
 interface KeyHit {
   row: number;
@@ -31,27 +25,31 @@ interface KeyHit {
   def: KeyDef;
 }
 
-function rowsFor(name: LayerName): KeyDef[][] {
-  return [KEYBOARD_LAYOUT.actionRow, ...(KEYBOARD_LAYOUT.layers[name] ?? [])];
+/** The action strip, then the layer's rows. Shorter layers leave a gap. */
+function rowsFor(layout: KeyboardLayout, name: LayerName): KeyDef[][] {
+  return [layout.actionRow, ...(layout.layers[name] ?? [])];
 }
 
 /** Key under a point in keyboard-local coordinates, or null in a gap. */
-export function keyAt(layerName: LayerName, x: number, y: number): KeyHit | null {
-  const row = Math.floor(y / KEY_H);
-  const rows = rowsFor(layerName);
+export function keyAt(layout: KeyboardLayout, layerName: LayerName, x: number, y: number, keyH = KEY_H): KeyHit | null {
+  const row = Math.floor(y / keyH);
+  const rows = rowsFor(layout, layerName);
   if (row < 0 || row >= rows.length) return null;
   let at = 0;
   for (let index = 0; index < rows[row].length; index += 1) {
     const def = rows[row][index];
     const width = def.w * UNIT;
-    if (x >= at && x < at + width) return { row, index, def };
+    if (x >= at && x < at + width) return "gap" in def.act ? null : { row, index, def };
     at += width;
   }
   return null;
 }
 
 export interface KeyboardProps {
+  layout: KeyboardLayout;
   top: number;
+  rows: number;
+  keyH: number;
   onSettings: () => void;
   onChar: (ch: string) => void;
   /** `name` is a KeyName, or a single character when ctrl is held. */
@@ -67,6 +65,9 @@ export function Keyboard(props: KeyboardProps) {
   const [pressed, setPressed] = createSignal<string | null>(null);
   let rootNode: NodeMirror | undefined;
   let releaseTimer = 0;
+  // Another layout may not have the layer this one was on.
+  createEffect(on(() => props.layout, () => setLayerName("lower"), { defer: true }));
+  const rowIndices = createMemo(() => Array.from({ length: props.rows }, (_, row) => row));
 
   const press = (hit: KeyHit) => {
     setPressed(`${hit.row}:${hit.index}`);
@@ -100,7 +101,7 @@ export function Keyboard(props: KeyboardProps) {
     surface: "auxiliary",
     region: { node: () => rootNode },
     onDown: (contact) => {
-      const hit = keyAt(layerName(), contact.x, contact.y - props.top);
+      const hit = keyAt(props.layout, layerName(), contact.x, contact.y - props.top, props.keyH);
       if (hit) press(hit);
     },
     onUp: () => {},
@@ -117,7 +118,7 @@ export function Keyboard(props: KeyboardProps) {
       // The plate the keys are set into, lit from the same direction they
       // are: a hairline along the top edge and a shallow fall to the bottom.
       class="absolute left-0 right-0 bg-gradient-to-b from-[#2a323e] via-[#161c26] to-[#10151d]"
-      style={{ insetT: props.top, height: KB_H, gradViaPos: 0.06 }}
+      style={{ insetT: props.top, height: props.rows * props.keyH, gradViaPos: 0.06 }}
       debugName="TermKeyboard"
     >
       {/* The rows have no container of their own: every key is placed
@@ -125,11 +126,12 @@ export function Keyboard(props: KeyboardProps) {
           Mount depth is what the JS stack is spent on (hosts/3ds/src/qjs.c
           POCKETJS_JS_STACK_SIZE), and a wrapper that only holds a y offset is
           the kind of level worth not spending it on. */}
-      <For each={ROW_INDICES}>
+      <For each={rowIndices()}>
         {(row) => (
           <KeyboardRow
             row={row}
-            layer={layerName()}
+            keys={rowsFor(props.layout, layerName())[row] ?? []}
+            keyH={props.keyH}
             pressed={pressed()}
             ctrlArmed={props.ctrlArmed()}
             altArmed={altArmed()}
@@ -170,22 +172,32 @@ function capClass(down: boolean, dark: boolean, armed: boolean): string {
     : "absolute left-0 right-0 rounded-[4] items-center justify-center bg-gradient-to-b from-[#5f6c7f] via-[#3a4351] to-[#2a323e]";
 }
 
+/** A row's drawn keys and their x offsets. Gaps take width but no node. */
+function placeKeys(keys: readonly KeyDef[]): Array<{ def: KeyDef; index: number; left: number }> {
+  const placed: Array<{ def: KeyDef; index: number; left: number }> = [];
+  let left = 0;
+  keys.forEach((def, index) => {
+    if (!("gap" in def.act)) placed.push({ def, index, left });
+    left += def.w * UNIT;
+  });
+  return placed;
+}
+
 function KeyboardRow(props: {
   row: number;
-  layer: LayerName;
+  keys: KeyDef[];
+  keyH: number;
   pressed: string | null;
   ctrlArmed: boolean;
   altArmed: boolean;
 }) {
-  const defs = () => rowsFor(props.layer)[props.row] ?? [];
+  const placed = createMemo(() => placeKeys(props.keys));
+  // Rows taller than the touchpad-on 26 px have room for the larger label.
+  const big = () => props.keyH >= 34;
   return (
-    <For each={defs()}>
-      {(def, index) => {
-        const left = () =>
-          defs()
-            .slice(0, index())
-            .reduce((x, d) => x + d.w * UNIT, 0);
-        const isPressed = createMemo(() => props.pressed === `${props.row}:${index()}`);
+    <For each={placed()}>
+      {({ def, index, left }) => {
+        const isPressed = createMemo(() => props.pressed === `${props.row}:${index}`);
         const isArmedCtrl = () => "mod" in def.act && (def.act.mod === "ctrl" && props.ctrlArmed || def.act.mod === "alt" && props.altArmed);
         const down = createMemo(() => isPressed() || isArmedCtrl());
         return (
@@ -195,10 +207,10 @@ function KeyboardRow(props: {
           <View
             class="absolute rounded-[4] bg-[#080b11]"
             style={{
-              insetL: left() + 2,
+              insetL: left + 2,
               width: def.w * UNIT - 4,
-              height: KEY_H - 4,
-              insetT: props.row * KEY_H + 2,
+              height: props.keyH - 4,
+              insetT: props.row * props.keyH + 2,
             }}
           >
             <View
@@ -209,11 +221,11 @@ function KeyboardRow(props: {
               // band thin instead of letting it wash over half the face.
               style={{
                 insetT: down() ? KEY_LIP : 0,
-                height: KEY_H - 4 - KEY_LIP,
+                height: props.keyH - 4 - KEY_LIP,
                 gradViaPos: down() ? 0.82 : 0.18,
               }}
             >
-              <Text class={down() ? "text-xs text-[#c3d0e2]" : "text-xs text-[#dfe6f2]"}>
+              <Text class={labelClass(down(), big())}>
                 {def.label}
               </Text>
             </View>
@@ -222,4 +234,9 @@ function KeyboardRow(props: {
       }}
     </For>
   );
+}
+
+function labelClass(down: boolean, big: boolean): string {
+  if (big) return down ? "text-sm text-[#c3d0e2]" : "text-sm text-[#dfe6f2]";
+  return down ? "text-xs text-[#c3d0e2]" : "text-xs text-[#dfe6f2]";
 }

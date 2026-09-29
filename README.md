@@ -228,11 +228,19 @@ The app's runtime storage is isolated under
 bun run keyboard             # http://127.0.0.1:5175/
 ```
 
+The layout file holds several named layouts; `classic` is the original and
+`split` moves each half against its edge with a dead gap between them. On the
+3DS, settings → **Keyboard** cycles through them and **Touchpad** hides the
+scroll touchpad so the keys grow from 26 px to about 42 px tall. The editor
+chooses which layout and touchpad state the app starts with.
+
 The editor draws the lower screen at an integer scale with the device's key
-geometry and cap colours. Keys can be relabelled, resized on a quarter-unit
+geometry and cap colours. Its **Thumb reach** overlay shades the bands along
+each edge that thumbs cover while holding the console, and counts the keys
+centred in them. Keys can be relabelled, resized on a quarter-unit
 grid, dragged between rows, and given an action: typed text, a Ctrl chord, a
-named key, a layer switch, a one-shot modifier or settings. Layers can be
-added and renamed. **Try it** mode runs the device's press logic and shows
+named key, a layer switch, a one-shot modifier, settings, or a gap that
+ignores touches. Layers and layouts can be added and renamed. **Try it** mode runs the device's press logic and shows
 what the terminal would receive.
 
 Saving writes `app/keyboard-layout.ts`. The layout is kept as TypeScript so the

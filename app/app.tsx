@@ -1,13 +1,15 @@
 // 3DS terminal: the full primary surface is a grid; the auxiliary surface
 // owns session navigation, connection status and incremental keyboard input.
 
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { AuxiliarySurface, Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { analogY, rightAnalogX, rightAnalogY, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
 import { TermGrid } from "./grid.tsx";
-import { KB_H, Keyboard } from "./keyboard.tsx";
+import { Keyboard } from "./keyboard.tsx";
+import { KEYBOARD } from "./keyboard-layout.ts";
+import { keyboardGeometry } from "../shared/keyboard.ts";
 import { connectTermOffload } from "./offload.ts";
 import { FONT_NAMES, loadTerminalFont } from "./font.ts";
 import { TERM_LAYOUT, TABS_PER_PAGE, tabPage } from "../shared/layout.ts";
@@ -20,7 +22,8 @@ const TAB_W = 72;
 /** The trailing "open a session" cell. Narrow, so it reads as sitting beside
  *  the last tab rather than as an empty tab of its own. */
 const TAB_NEW_W = 30;
-const KB_TOP = 240 - KB_H;
+/** Keyboard layouts in the order the settings panel cycles through them. */
+const LAYOUT_NAMES = Object.keys(KEYBOARD.layouts);
 
 
 /* Closing a session is a hold, then a slide, then a release — not a tap on a
@@ -53,6 +56,13 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   const [settingsOpen, setSettingsOpen] = createSignal(props.initialSettings ?? false);
   const [scrollSpeed, setScrollSpeed] = createSignal(1);
   const [preview, setPreview] = createSignal(true);
+  const [layoutName, setLayoutName] = createSignal(KEYBOARD.defaults.layout);
+  const [touchpadOn, setTouchpadOn] = createSignal(KEYBOARD.defaults.touchpad);
+  const layout = () => KEYBOARD.layouts[layoutName()];
+  // Without the touchpad the keyboard takes its band and the rows grow.
+  const kb = createMemo(() => keyboardGeometry(layout(), touchpadOn()));
+  const touchpadH = () => kb().top - 4 - 30;
+  const showTouchpad = () => touchpadOn() && touchpadH() >= 20;
   const pageCount = () => Math.max(1, Math.ceil(store.sessions().length / TABS_PER_PAGE));
   const visibleSessions = () => store.sessions().slice(page() * TABS_PER_PAGE, (page() + 1) * TABS_PER_PAGE);
   createEffect(() => {
@@ -135,7 +145,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   let pagesNode: NodeMirror | undefined;
   createGesture({ surface: "auxiliary", region: { node: () => pagesNode }, onTap: contact => {
     const count = pageCount();
-    setPage(p => (p + (contact.y < 68 ? -1 : 1) + count) % count);
+    setPage(p => (p + (contact.y < 30 + touchpadH() / 2 ? -1 : 1) + count) % count);
   } });
   /** The session the close bar is armed for, and how far the bar has slid. */
   const [closingSid, setClosingSid] = createSignal(-1);
@@ -199,10 +209,10 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   let touchpad: NodeMirror | undefined;
   const [touching, setTouching] = createSignal(false);
   createGesture({ surface: "auxiliary", region: { node: () => touchpad }, axis: "y", panSlop: 2,
-    onDown() { if (closingSid() < 0) { setTouching(true); store.history?.beginDrag(); } },
-    onPanMove(c) { if (closingSid() < 0) store.history?.drag(-c.fdy * 3 * scrollSpeed()); },
-    onPanEnd(c) { setTouching(false); store.history?.endDrag(-c.vy * 3 * scrollSpeed()); },
-    onTap() { setTouching(false); store.history?.endDrag(0); },
+    onDown() { if (closingSid() < 0 && showTouchpad()) { setTouching(true); store.history?.beginDrag(); } },
+    onPanMove(c) { if (closingSid() < 0 && touching()) store.history?.drag(-c.fdy * 3 * scrollSpeed()); },
+    onPanEnd(c) { if (touching()) { setTouching(false); store.history?.endDrag(-c.vy * 3 * scrollSpeed()); } },
+    onTap() { if (touching()) { setTouching(false); store.history?.endDrag(0); } },
     onCancel() { setTouching(false); store.history?.stop(); },
   });
 
@@ -260,20 +270,25 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
             </View>
           </View>
 
-          <View ref={touchpad} debugName="HistoryTouchpad" class="absolute left-[4] top-[30] h-[76] rounded-[4] border border-[#273345] overflow-hidden" style={{ width: pageCount() > 1 ? 260 : 312, bgColor: touching() ? 0xff30251b : 0xff1b1611 }}>
-            <View class="absolute left-[110] top-[34] w-[40] h-[1] bg-[#35475b]" />
-            <View class="absolute left-[118] top-[40] w-[24] h-[1] bg-[#35475b]" />
+          {/* Switched off, the touchpad keeps its node at zero height, so its gesture
+              region stays attached to a live node and covers nothing. */}
+          <View ref={touchpad} debugName="HistoryTouchpad" class="absolute left-[4] top-[30] rounded-[4] border border-[#273345] overflow-hidden" style={{ width: pageCount() > 1 ? 260 : 312, height: showTouchpad() ? touchpadH() : 0, bgColor: touching() ? 0xff30251b : 0xff1b1611 }}>
+            <View class="absolute left-[110] w-[40] h-[1] bg-[#35475b]" style={{ insetT: Math.floor(touchpadH() / 2) - 4 }} />
+            <View class="absolute left-[118] w-[24] h-[1] bg-[#35475b]" style={{ insetT: Math.floor(touchpadH() / 2) + 2 }} />
             <View class={store.conn() === "live" ? "absolute right-[7] bottom-[7] w-[3] h-[3] rounded-[2] bg-[#42765a]" : "absolute right-[7] bottom-[7] w-[3] h-[3] rounded-[2] bg-[#bb8041]"} />
           </View>
-          <Show when={pageCount() > 1}>
-            <View ref={node => pagesNode = node} class="absolute left-[270] top-[30] w-[46] h-[76] rounded-[4] bg-[#141b24]">
+          <Show when={pageCount() > 1 && showTouchpad()}>
+            <View ref={node => pagesNode = node} class="absolute left-[270] top-[30] w-[46] rounded-[4] bg-[#141b24]" style={{ height: touchpadH() }}>
               <Text class="absolute left-[16] top-[7] text-lg text-[#9fb6d8]">‹</Text>
-              <Text class="absolute left-[16] top-[43] text-lg text-[#9fb6d8]">›</Text>
+              <Text class="absolute left-[16] text-lg text-[#9fb6d8]" style={{ insetT: touchpadH() - 33 }}>›</Text>
             </View>
           </Show>
 
           <Keyboard
-            top={KB_TOP}
+            layout={layout()}
+            top={kb().top}
+            rows={kb().rows}
+            keyH={kb().keyH}
             onSettings={() => { store.history?.stop(); setSettingsOpen(true); }}
             onChar={(ch) => {
               store.sendText(ch);
@@ -308,9 +323,11 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
           </Show>
 
           <Show when={settingsOpen()}>
-            <TermSettings font={fontIndex()} speed={scrollSpeed()} preview={preview()} status={store.conn() === "live" ? store.hostName() : "Waiting for paired host"}
+            <TermSettings font={fontIndex()} speed={scrollSpeed()} preview={preview()} layout={layoutName()} touchpad={touchpadOn()} status={store.conn() === "live" ? store.hostName() : "Waiting for paired host"}
               onFont={n => { setFontIndex(n); loadTerminalFont(FONT_NAMES[n]); }}
-              onSpeed={setScrollSpeed} onPreview={on => { setPreview(on); store.setPreview(on); }} onClose={() => setSettingsOpen(false)} />
+              onSpeed={setScrollSpeed} onPreview={on => { setPreview(on); store.setPreview(on); }}
+              onLayout={() => setLayoutName(LAYOUT_NAMES[(LAYOUT_NAMES.indexOf(layoutName()) + 1) % LAYOUT_NAMES.length])}
+              onTouchpad={() => { store.history?.stop(); setTouchpadOn(!touchpadOn()); }} onClose={() => setSettingsOpen(false)} />
           </Show>
         </View>
       </AuxiliarySurface>
