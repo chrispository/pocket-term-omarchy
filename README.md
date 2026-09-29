@@ -222,6 +222,26 @@ key. Return to HBL with L + R + START before transferring another build.
 The app's runtime storage is isolated under
 `/pocketjs/runtime/apps/22a222ca7b6bddb1/`.
 
+## Editing the keyboard
+
+```sh
+bun run keyboard             # http://127.0.0.1:5175/
+```
+
+The editor draws the lower screen at an integer scale with the device's key
+geometry and cap colours. Keys can be relabelled, resized on a quarter-unit
+grid, dragged between rows, and given an action: typed text, a Ctrl chord, a
+named key, a layer switch, a one-shot modifier or settings. Layers can be
+added and renamed. **Try it** mode runs the device's press logic and shows
+what the terminal would receive.
+
+Saving writes `app/keyboard-layout.ts`. The layout is kept as TypeScript so the
+build's literal scan bakes every label's glyphs. The editor rejects rows wider
+than the 10-unit panel and switches to missing layers. It warns about short
+rows and labels that Inter, the key font, cannot draw. The keyboard's height follows
+the tallest layer. **Save & build** runs `bun run 3ds`; **Deploy** runs
+`bun run deploy` while ftpd is running on the console.
+
 ## Development and validation
 
 ```sh

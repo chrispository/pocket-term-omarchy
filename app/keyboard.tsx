@@ -4,100 +4,26 @@
 // a fixed grid of 26 px rows on a 32 px column unit (10 units = the 320 px
 // panel), hit by one auxiliary-surface gesture on the keyboard root.
 //
-// Row 0 is the terminal action strip (Esc/Tab/Ctrl/Alt/paging/settings); rows
-// 1..4 are the character layers. Shift and Ctrl are one-shot: they arm, the
-// next key consumes them — the classic touch-phone convention, and the only
-// one that works with a single resistive contact.
+// Row 0 is the terminal action strip (Esc/Tab/Ctrl/Alt/paging/settings); the
+// rows below it are the character layers. The keys themselves are data in
+// ./keyboard-layout.ts, edited with `bun run keyboard`. Shift and Ctrl are
+// one-shot: they arm, the next key consumes them — the classic touch-phone
+// convention, and the only one that works with a single resistive contact.
 
 import { createMemo, createSignal, For } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { onFrame } from "@pocketjs/framework/lifecycle";
-import type { KeyName } from "../shared/protocol.ts";
+import { KEY_H, UNIT, layerRows, type KeyDef, type LayerName } from "../shared/keyboard.ts";
+import { KEYBOARD_LAYOUT } from "./keyboard-layout.ts";
 
-export const KEY_H = 26;
-export const KB_ROWS = 5;
+export { KEY_H };
+export type { KeyAction, LayerName } from "../shared/keyboard.ts";
+
+/** The action strip plus the tallest layer; shorter layers leave a gap. */
+export const KB_ROWS = 1 + layerRows(KEYBOARD_LAYOUT);
 export const KB_H = KEY_H * KB_ROWS;
-/** 10 column units of 32 px = the 320 px auxiliary panel. */
-const UNIT = 32;
-
-export type KeyAction =
-  | { ch: string; ctrl?: boolean }
-  | { key: KeyName }
-  | { layer: LayerName }
-  | { mod: "shift" | "ctrl" | "alt" }
-  | { settings: true };
-
-export type LayerName = "lower" | "upper" | "sym" | "sym2" | "fn";
-
-interface KeyDef {
-  label: string;
-  w: number;
-  act: KeyAction;
-  /** Painted darker, like the classic keyboard's function keys. */
-  dark?: boolean;
-}
-
-const k = (label: string, w = 1): KeyDef => ({ label, w, act: { ch: label } });
-const key = (label: string, name: KeyName, w = 1): KeyDef => ({
-  label,
-  w,
-  act: { key: name },
-  dark: true,
-});
-const layer = (label: string, target: LayerName, w = 1): KeyDef => ({
-  label,
-  w,
-  act: { layer: target },
-  dark: true,
-});
-
-/** The action strip is layer-independent. ^C rides the key path with the
- *  ctrl flag so the daemon encodes the control byte. */
-const ACTION_ROW: KeyDef[] = [
-  key("esc", "Escape", 1.25), key("tab", "Tab", 1.25),
-  { label: "ctl", w: 1.25, act: { mod: "ctrl" }, dark: true },
-  { label: "alt", w: 1.25, act: { mod: "alt" }, dark: true },
-  key("pgu", "PageUp", 1.25), key("pgd", "PageDown", 1.25),
-  { label: "settings", w: 2.5, act: { settings: true }, dark: true },
-];
-
-function charRow(chars: string): KeyDef[] {
-  return [...chars].map((ch) => k(ch));
-}
-
-const LAYERS: Record<LayerName, KeyDef[][]> = {
-  fn: [
-    [key("F1", "F1", 2), key("F2", "F2", 2), key("F3", "F3", 2), key("F4", "F4", 2), key("F5", "F5", 2)],
-    [key("F6", "F6", 2), key("F7", "F7", 2), key("F8", "F8", 2), key("F9", "F9", 2), key("F10", "F10", 2)],
-    [key("F11", "F11", 2), key("F12", "F12", 2), key("ins", "Insert", 2), key("del", "Delete", 2), key("home", "Home", 2)],
-    [layer("abc", "lower", 2), layer("?123", "sym", 2), key("end", "End", 2), key("tab", "Tab", 2), key("enter", "Enter", 2)],
-  ],
-  lower: [
-    charRow("qwertyuiop"),
-    charRow("asdfghjkl'"),
-    [{ label: "⇧", w: 1.5, act: { mod: "shift" }, dark: true }, ...charRow("zxcvbnm"), key("⌫", "Backspace", 1.5)],
-    [layer("?123", "sym", 1.5), k("-"), { label: "space", w: 4, act: { ch: " " } }, k("/"), k("."), key("⏎", "Enter", 1.5)],
-  ],
-  upper: [
-    charRow("QWERTYUIOP"),
-    charRow("ASDFGHJKL\""),
-    [{ label: "⬆", w: 1.5, act: { mod: "shift" }, dark: true }, ...charRow("ZXCVBNM"), key("⌫", "Backspace", 1.5)],
-    [layer("?123", "sym", 1.5), k("_"), { label: "space", w: 4, act: { ch: " " } }, k("?"), k("!"), key("⏎", "Enter", 1.5)],
-  ],
-  sym: [
-    charRow("1234567890"),
-    charRow("!@#$%^&*()"),
-    [layer("#{~", "sym2", 1.5), ...charRow("-_=+[];"), key("⌫", "Backspace", 1.5)],
-    [layer("abc", "lower", 1.5), k(":"), { label: "space", w: 4, act: { ch: " " } }, k(","), k("."), key("⏎", "Enter", 1.5)],
-  ],
-  sym2: [
-    charRow("~`|\\{}<>\"'"),
-    [layer("F1+", "fn", 2), ...charRow("*+-=%$#@")],
-    [layer("?123", "sym", 1.5), ...charRow("&^!.,;"), k(":"), key("⌫", "Backspace", 1.5)],
-    [layer("abc", "lower", 1.5), k("("), { label: "space", w: 4, act: { ch: " " } }, k(")"), k("."), key("⏎", "Enter", 1.5)],
-  ],
-};
+const ROW_INDICES = Array.from({ length: KB_ROWS }, (_, row) => row);
 
 interface KeyHit {
   row: number;
@@ -106,7 +32,7 @@ interface KeyHit {
 }
 
 function rowsFor(name: LayerName): KeyDef[][] {
-  return [ACTION_ROW, ...LAYERS[name]];
+  return [KEYBOARD_LAYOUT.actionRow, ...(KEYBOARD_LAYOUT.layers[name] ?? [])];
 }
 
 /** Key under a point in keyboard-local coordinates, or null in a gap. */
@@ -199,7 +125,7 @@ export function Keyboard(props: KeyboardProps) {
           Mount depth is what the JS stack is spent on (hosts/3ds/src/qjs.c
           POCKETJS_JS_STACK_SIZE), and a wrapper that only holds a y offset is
           the kind of level worth not spending it on. */}
-      <For each={[0, 1, 2, 3, 4]}>
+      <For each={ROW_INDICES}>
         {(row) => (
           <KeyboardRow
             row={row}
@@ -251,7 +177,7 @@ function KeyboardRow(props: {
   ctrlArmed: boolean;
   altArmed: boolean;
 }) {
-  const defs = () => rowsFor(props.layer)[props.row];
+  const defs = () => rowsFor(props.layer)[props.row] ?? [];
   return (
     <For each={defs()}>
       {(def, index) => {
@@ -297,7 +223,3 @@ function KeyboardRow(props: {
     </For>
   );
 }
-
-/** All key labels, spelled once as literals for the atlas scan. */
-export const KEYBOARD_GLYPHS =
-  "qwertyuiopasdfghjkl'zxcvbnm-/.QWERTYUIOPASDFGHJKL\"ZXCVBNM_?!1234567890@#$%^&*()=+[];~`|\\{}<>,:esctabctl^Cpgupgdspaceabc⇧⬆⌫⏎←↑→↓";

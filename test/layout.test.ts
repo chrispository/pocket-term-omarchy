@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { TERM_FONT, TERM_FONTS } from "../app/font.generated.ts";
 import { TERM_LAYOUT } from "../shared/layout.ts";
-import { keyAt, type LayerName } from "../app/keyboard.tsx";
+import { readFileSync } from "node:fs";
+import { KB_H, keyAt, type LayerName } from "../app/keyboard.tsx";
+import { KEYBOARD_LAYOUT } from "../app/keyboard-layout.ts";
+import { checkLayout, layoutSource } from "../shared/keyboard.ts";
+import type { KeyName } from "../shared/protocol.ts";
 import { terminalFont } from "../scripts/font.ts";
 import { loadBitmapFont, type TerminalFontName } from "../shared/font-sources.ts";
 import { bitmapCell } from "../shared/bitmap-font.ts";
@@ -16,15 +20,26 @@ test("the shipped atlas and 80 x 24 grid reach all four screen edges", () => {
 });
 
 test("all keyboard layers cover the touch panel, with reachable function and modifier keys", () => {
-  for (const layer of ["lower", "upper", "sym", "sym2", "fn"] as LayerName[]) {
-    for (let row = 0; row < 5; row++) for (let x = 0; x < 320; x += 16) expect(keyAt(layer, x + 1, row * 26 + 13)).not.toBeNull();
+  // Structural rather than positional, so a layout edited with `bun run keyboard`
+  // keeps passing as long as it stays usable.
+  for (const layer of Object.keys(KEYBOARD_LAYOUT.layers) as LayerName[]) {
+    for (let row = 0; row < 1 + KEYBOARD_LAYOUT.layers[layer].length; row++) {
+      for (let x = 0; x < 320; x += 16) expect(keyAt(layer, x + 1, row * 26 + 13)).not.toBeNull();
+    }
   }
-  expect(keyAt("fn", 1, 39)!.def.act).toEqual({ key: "F1" });
-  expect(keyAt("fn", 65, 91)!.def.act).toEqual({ key: "F12" });
-  expect(keyAt("lower", 137, 13)!.def.act).toEqual({ mod: "alt" });
-  expect(keyAt("lower", 280, 13)!.def.act).toEqual({ settings: true });
+  const acts = [KEYBOARD_LAYOUT.actionRow, ...Object.values(KEYBOARD_LAYOUT.layers).flat()].flat().map((def) => def.act);
+  for (let n = 1; n <= 12; n++) expect(acts).toContainEqual({ key: `F${n}` as KeyName });
   const strip = Array.from({ length: 320 }, (_, x) => keyAt("lower", x, 13)!.def.act);
+  expect(strip).toContainEqual({ settings: true });
+  expect(strip).toContainEqual({ mod: "alt" });
+  expect(strip).toContainEqual({ mod: "ctrl" });
   expect(strip.some(act => "key" in act && ["Up", "Down", "Left", "Right"].includes(act.key))).toBe(false);
+  expect(KB_H).toBe(26 * (1 + Math.max(...Object.values(KEYBOARD_LAYOUT.layers).map((rows) => rows.length))));
+});
+
+test("the keyboard layout passes the editor's checks and is written back unchanged", () => {
+  expect(checkLayout(KEYBOARD_LAYOUT).errors).toEqual([]);
+  expect(layoutSource(KEYBOARD_LAYOUT)).toBe(readFileSync(new URL("../app/keyboard-layout.ts", import.meta.url), "utf8"));
 });
 
 test("box and block ink reaches adjacent cells without font-metric gaps", () => {

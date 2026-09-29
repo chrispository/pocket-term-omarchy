@@ -22,6 +22,7 @@
     "font": "bun scripts/font.ts",
     "test:pty": "node --test test/pty.integration.ts test/ghostty-history.integration.ts",
     "visual": "bun scripts/visual.ts",
-    "deploy": "bun scripts/deploy.ts"
+    "deploy": "bun scripts/deploy.ts",
+    "keyboard": "bun scripts/keyboard-editor.ts"
   }
 }

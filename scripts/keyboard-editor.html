@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pocket Term · keyboard editor</title>
+<style>
+  @font-face { font-family: "KeyInter"; src: url("/font.ttf") format("truetype"); }
+  :root {
+    --bg: #0b0e13; --panel: #121720; --line: #232b38; --ink: #dfe6f2; --dim: #8593a8;
+    --accent: #4c9bf5; --warn: #e8b04a; --err: #f06a5d; --ok: #5fc98b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: #1c2330; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #3a4658; background: #222b3a; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: #2f6fbe; border-color: #4c9bf5; }
+  button.primary:hover:not(:disabled) { background: #3a7fd0; }
+  button.danger:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
+  input, select { background: #0d1118; border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); }
+  kbd { font: 11px ui-monospace, monospace; background: #1c2330; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0 8px 0 0; }
+  header .file { color: var(--dim); font: 12px ui-monospace, monospace; }
+  header .dirty { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); display: none; }
+  header.is-dirty .dirty { display: inline-block; }
+  header .spacer { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; }
+  .seg button.on { background: #2a3445; }
+
+  main { display: grid; grid-template-columns: 1fr 340px; height: calc(100% - 51px); }
+  #stageCol { overflow: auto; padding: 18px 22px 40px; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
+  aside section { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  aside h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+  .field { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .field > label { color: var(--dim); }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .hint { color: var(--dim); font-size: 12px; }
+  .empty { color: var(--dim); font-style: italic; }
+
+  #layers { display: flex; gap: 4px; align-items: end; margin-bottom: 12px; flex-wrap: wrap; }
+  #layers button { border-radius: 7px 7px 0 0; border-bottom: 0; padding: 6px 14px; color: var(--dim); }
+  #layers button.on { background: #1f2735; color: var(--ink); border-color: #3a4658; }
+  #layers .shared { margin-left: auto; color: var(--dim); font-size: 12px; align-self: center; }
+
+  #stageWrap { display: flex; gap: 14px; align-items: flex-start; }
+  /* The 3DS bottom panel at an integer scale; everything inside is placed
+     in device pixels times --s. */
+  #screen { position: relative; flex: none; background: #06080c; border-radius: 6px;
+    box-shadow: 0 0 0 10px #1a1f28, 0 0 0 11px #2a3140, 0 18px 40px rgba(0,0,0,.5); overflow: hidden; }
+  #above { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; }
+  #above .tabs { height: calc(26px * var(--s)); background: #111722; border-bottom: 1px solid #1d2532;
+    color: #4d5a6e; display: flex; align-items: center; padding-left: calc(8px * var(--s)); font-size: calc(9px * var(--s)); }
+  #above .pad { flex: 1; display: flex; align-items: center; justify-content: center; color: #333d4d;
+    font-size: calc(8px * var(--s)); background: repeating-linear-gradient(45deg, #080b10 0 8px, #0a0e14 8px 16px); }
+  #plate { position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to bottom, #2a323e 0%, #161c26 6%, #10151d 100%); }
+  .sock { position: absolute; border-radius: calc(4px * var(--s)); background: #080b11; }
+  .cap { position: absolute; left: 0; right: 0; border-radius: calc(4px * var(--s)); display: flex; align-items: center; justify-content: center;
+    font-family: KeyInter, sans-serif; font-size: calc(12px * var(--s)); color: #dfe6f2; white-space: nowrap; overflow: hidden;
+    background: linear-gradient(to bottom, #5f6c7f 0%, #3a4351 18%, #2a323e 100%); user-select: none; }
+  .cap.dark { background: linear-gradient(to bottom, #4b5768 0%, #2a323d 18%, #1c222b 100%); }
+  .cap.down { color: #c3d0e2; background: linear-gradient(to bottom, #151a22 0%, #1d242e 82%, #343d4a 100%); }
+  .cap.dark.down { background: linear-gradient(to bottom, #0d1118 0%, #141922 82%, #28303b 100%); }
+  .cap.armed { background: linear-gradient(to bottom, #8cc2ff 0%, #4c9bf5 82%, #2f6fbe 100%); }
+  .sock.sel { box-shadow: 0 0 0 2px var(--accent), 0 0 12px rgba(76,155,245,.6); z-index: 2; }
+  .sock.dragging { opacity: .35; }
+  .sock .grip { position: absolute; top: 0; bottom: 0; right: calc(-2px * var(--s)); width: calc(4px * var(--s)); cursor: ew-resize; z-index: 3; }
+  .edit .sock { cursor: grab; }
+  .try .sock { cursor: pointer; }
+  .gapfill { position: absolute; border: 1px dashed #3a2a2a; border-radius: calc(4px * var(--s)); pointer-events: none;
+    background: repeating-linear-gradient(135deg, rgba(240,106,93,.08) 0 6px, transparent 6px 12px); }
+  #caret { position: absolute; width: 3px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 8px var(--accent); pointer-events: none; display: none; z-index: 4; }
+  .emptyRow { position: absolute; display: flex; align-items: center; justify-content: center; color: #56627a;
+    font-size: calc(8px * var(--s)); border: 1px dashed #2c3544; border-radius: calc(4px * var(--s)); cursor: pointer; }
+
+  #gutter { position: relative; flex: none; }
+  #gutter .g { position: absolute; left: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  #gutter .g > * { flex: none; }
+  .units { font: 12px ui-monospace, monospace; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); }
+  .units.u-ok { color: var(--ok); } .units.u-short { color: var(--warn); border-color: #5a4a2a; } .units.u-over { color: var(--err); border-color: #5a2a2a; }
+  #gutter button { padding: 1px 7px; font-size: 12px; }
+  #gutter .lbl { color: var(--dim); font-size: 11px; width: 44px; }
+
+  #below { margin-top: 18px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #actual { margin-top: 26px; }
+  #actual canvas { image-rendering: pixelated; border-radius: 3px; box-shadow: 0 0 0 1px var(--line); }
+
+  #tryOut { margin-top: 16px; display: none; }
+  .try #tryOut { display: block; }
+  #tryOut .out { font: 14px ui-monospace, monospace; background: #06080c; border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 12px; min-height: 44px; white-space: pre-wrap; word-break: break-all; }
+  #tryOut .tok { color: #0b0e13; background: #8cc2ff; border-radius: 3px; padding: 0 3px; margin: 0 1px; font-size: 12px; }
+
+  #problems li { margin: 0 0 6px; padding-left: 4px; list-style: none; }
+  #problems ul { margin: 0; padding: 0; }
+  #problems .e { color: var(--err); } #problems .w { color: var(--warn); }
+  #problems .ok { color: var(--ok); }
+  #log { font: 11px/1.35 ui-monospace, monospace; background: #06080c; border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; margin-top: 10px; display: none; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1f2735; border: 1px solid #3a4658;
+    padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  .keys { color: var(--dim); font-size: 12px; line-height: 1.9; }
+</style>
+</head>
+<body>
+<header id="hdr">
+  <h1>Pocket Term keyboard</h1>
+  <span class="file">app/keyboard-layout.ts</span><span class="dirty" title="unsaved changes"></span>
+  <span class="spacer"></span>
+  <div class="seg" id="modeSeg">
+    <button data-mode="edit" class="on">Edit</button><button data-mode="try">Try it</button>
+  </div>
+  <button id="undo" title="Ctrl+Z">Undo</button>
+  <button id="redo" title="Ctrl+Shift+Z">Redo</button>
+  <button id="revert" title="Reload the file from disk">Revert</button>
+  <button id="save" class="primary" title="Ctrl+S">Save</button>
+</header>
+<main>
+  <div id="stageCol" class="edit">
+    <div id="layers"></div>
+    <div id="stageWrap">
+      <div id="screen">
+        <div id="above"><div class="tabs">session tabs</div><div class="pad">touchpad</div></div>
+        <div id="plate"></div>
+        <div id="caret"></div>
+      </div>
+      <div id="gutter"></div>
+    </div>
+    <div id="below">
+      <button id="addRow">+ Row in this layer</button>
+      <span class="hint">Drag a key to move it (also between rows), drag its right edge to resize.</span>
+    </div>
+    <div id="tryOut">
+      <h2 class="hint" style="margin:0 0 6px">What the terminal would receive</h2>
+      <div class="out" id="out"></div>
+      <div class="row" style="margin-top:8px"><button id="clearOut">Clear</button><span class="hint">Chords and named keys show as tags. Shift and Ctrl are one-shot, as on the device.</span></div>
+    </div>
+    <div id="actual">
+      <h2 class="hint" style="margin:0 0 6px; font-size:12px">Actual size (browser font rendering, approximate)</h2>
+      <canvas id="actualCanvas"></canvas>
+    </div>
+  </div>
+  <aside>
+    <section id="keySec"><h2>Key</h2><div id="keyPanel"></div></section>
+    <section id="layerSec"><h2>Layer</h2><div id="layerPanel"></div></section>
+    <section id="problems"><h2>Checks</h2><ul id="probList"></ul></section>
+    <section>
+      <h2>Build &amp; install</h2>
+      <div class="row"><button id="build">Save &amp; build .3dsx</button></div>
+      <div class="field" style="margin-top:10px"><label for="ip">Console IP</label><input id="ip" placeholder="10.0.0.154"></div>
+      <div class="field"><label for="ftpPort">ftpd port</label><input id="ftpPort" value="5000"></div>
+      <div class="row"><button id="deploy">Deploy over ftpd</button></div>
+      <p class="hint">Exit Pocket Term and start ftpd on the 3DS before deploying; ftpd cannot run while the app does.</p>
+      <pre id="log"></pre>
+    </section>
+    <section>
+      <h2>Shortcuts</h2>
+      <div class="keys">
+        <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> select ·
+        <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> move key<br>
+        <kbd>[</kbd> <kbd>]</kbd> width −/+ ¼ ·
+        <kbd>Del</kbd> remove · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate<br>
+        <kbd>Enter</kbd> edit label · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
+      </div>
+    </section>
+  </aside>
+</main>
+<div id="toast"></div>
+
+<script>
+// Device geometry, mirrored from shared/keyboard.ts and app/keyboard.tsx.
+const KEY_H = 26, UNIT = 32, PANEL_W = 320, PANEL_H = 240, KEY_LIP = 2, SNAP = 0.25;
+
+let layout = null, keyNames = [], savedJson = "";
+let layer = "lower";
+/** Selection: row 0 is the shared action strip, rows 1.. are the layer's. */
+let sel = null; // { row, index }
+let mode = "edit";
+let S = 3;
+const undoStack = [], redoStack = [];
+let lastPushTag = null, lastPushAt = 0;
+
+const $ = (id) => document.getElementById(id);
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function rows() { return [layout.actionRow, ...(layout.layers[layer] || [])]; }
+function kbRows() { return 1 + Math.max(0, ...Object.values(layout.layers).map((r) => r.length)); }
+function units(row) { return row.reduce((s, d) => s + d.w, 0); }
+function selDef() { return sel && rows()[sel.row] ? rows()[sel.row][sel.index] : null; }
+
+/** Record the state before a change. Changes with the same tag inside a
+ *  short window (typing into one field) collapse into one undo step. */
+function snapshot(tag) {
+  const now = Date.now();
+  if (tag && tag === lastPushTag && now - lastPushAt < 1200) { lastPushAt = now; return; }
+  undoStack.push(JSON.stringify({ layout, layer, sel }));
+  if (undoStack.length > 300) undoStack.shift();
+  redoStack.length = 0;
+  lastPushTag = tag; lastPushAt = now;
+}
+function restore(from, to) {
+  if (!from.length) return;
+  to.push(JSON.stringify({ layout, layer, sel }));
+  const s = JSON.parse(from.pop());
+  layout = s.layout; layer = s.layer; sel = s.sel; lastPushTag = null;
+  changed();
+}
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+// ---------------------------------------------------------------- rendering
+
+function fitScale() {
+  const avail = $("stageCol").clientWidth - 44 - 14 - 250;
+  S = Math.max(1, Math.min(3, Math.floor(avail / PANEL_W)));
+}
+
+function render() {
+  if (!layout.layers[layer]) layer = Object.keys(layout.layers)[0];
+  if (sel && !selDef()) sel = null;
+  $("hdr").classList.toggle("is-dirty", JSON.stringify(layout) !== savedJson);
+  $("undo").disabled = !undoStack.length; $("redo").disabled = !redoStack.length;
+  $("stageCol").className = mode;
+  renderLayers(); renderStage(); renderKeyPanel(); renderLayerPanel(); renderActual();
+}
+
+function renderLayers() {
+  const el = $("layers"); el.innerHTML = "";
+  for (const name of Object.keys(layout.layers)) {
+    const b = document.createElement("button");
+    b.textContent = name; b.className = name === layer ? "on" : "";
+    b.onclick = () => { layer = name; if (sel && sel.row > 0) sel = null; tryState.layer = name; render(); };
+    el.append(b);
+  }
+  const add = document.createElement("button"); add.textContent = "+"; add.title = "New layer";
+  add.onclick = () => newLayer(); el.append(add);
+  const note = document.createElement("span"); note.className = "shared";
+  note.textContent = "The top row is shared by every layer"; el.append(note);
+}
+
+function capState(def, r, i) {
+  const a = def.act;
+  const armed = mode === "try" && "mod" in a &&
+    (a.mod === "ctrl" && tryState.ctrl || a.mod === "alt" && tryState.alt || a.mod === "shift" && layer === "upper");
+  const pressed = mode === "try" && tryState.pressed === `${r}:${i}`;
+  return { armed, down: armed || pressed };
+}
+
+function renderStage() {
+  const screen = $("screen"), plate = $("plate");
+  screen.style.setProperty("--s", S);
+  screen.style.width = PANEL_W * S + "px"; screen.style.height = PANEL_H * S + "px";
+  const nRows = kbRows(), kbH = nRows * KEY_H;
+  plate.style.height = kbH * S + "px";
+  $("above").style.height = (PANEL_H - kbH) * S + "px";
+  plate.innerHTML = "";
+  const all = rows();
+  for (let r = 0; r < nRows; r++) {
+    const row = all[r];
+    if (!row) continue;
+    if (row.length === 0) {
+      const e = document.createElement("div"); e.className = "emptyRow";
+      Object.assign(e.style, { left: 2 * S + "px", top: (r * KEY_H + 2) * S + "px", width: (PANEL_W - 4) * S + "px", height: (KEY_H - 4) * S + "px" });
+      e.textContent = "empty row — click to add a key";
+      e.onclick = () => { if (mode !== "edit") return; snapshot(); row.push(newKey()); sel = { row: r, index: 0 }; changed(); };
+      plate.append(e);
+      continue;
+    }
+    let x = 0;
+    row.forEach((def, i) => {
+      const sock = document.createElement("div");
+      sock.className = "sock" + (sel && sel.row === r && sel.index === i && mode === "edit" ? " sel" : "");
+      sock.dataset.r = r; sock.dataset.i = i;
+      Object.assign(sock.style, {
+        left: (x * UNIT + 2) * S + "px", top: (r * KEY_H + 2) * S + "px",
+        width: Math.max(1, def.w * UNIT - 4) * S + "px", height: (KEY_H - 4) * S + "px",
+      });
+      const { armed, down } = capState(def, r, i);
+      const cap = document.createElement("div");
+      cap.className = "cap" + (def.dark ? " dark" : "") + (down ? " down" : "") + (armed ? " armed" : "");
+      cap.style.top = (down ? KEY_LIP : 0) * S + "px";
+      cap.style.height = (KEY_H - 4 - KEY_LIP) * S + "px";
+      cap.textContent = def.label;
+      sock.append(cap);
+      if (mode === "edit") { const g = document.createElement("div"); g.className = "grip"; g.title = "Drag to resize"; sock.append(g); }
+      plate.append(sock);
+      x += def.w;
+    });
+    const u = units(row);
+    if (u < 10 - 1e-9) {
+      const gap = document.createElement("div"); gap.className = "gapfill";
+      Object.assign(gap.style, { left: (u * UNIT + 2) * S + "px", top: (r * KEY_H + 2) * S + "px", width: Math.max(0, (10 - u) * UNIT - 4) * S + "px", height: (KEY_H - 4) * S + "px" });
+      plate.append(gap);
+    }
+  }
+  renderGutter(nRows, kbH);
+}
+
+function renderGutter(nRows, kbH) {
+  const g = $("gutter"); g.innerHTML = "";
+  g.style.height = PANEL_H * S + "px"; g.style.width = "250px";
+  const all = rows(), top0 = (PANEL_H - kbH) * S;
+  for (let r = 0; r < nRows; r++) {
+    const row = all[r]; if (!row) continue;
+    const u = units(row);
+    const d = document.createElement("div"); d.className = "g";
+    d.style.top = top0 + r * KEY_H * S + "px"; d.style.height = KEY_H * S + "px";
+    const cls = Math.abs(u - 10) < 1e-9 ? "ok" : u < 10 ? "short" : "over";
+    d.innerHTML = `<span class="lbl">${r === 0 ? "shared" : "row " + r}</span><span class="units u-${cls}" title="width in units; a row holds 10">${+u.toFixed(3)}/10</span>`;
+    if (mode === "edit") {
+      const add = btn("+", "Add a key to the end of this row", () => { snapshot(); row.push(newKey()); sel = { row: r, index: row.length - 1 }; changed(); });
+      d.append(add);
+      if (cls !== "ok" && row.length) d.append(btn("fit", "Scale this row's keys to fill 10 units", () => { snapshot(); fitRow(row); changed(); }));
+      if (r > 0) {
+        d.append(btn("↑", "Move row up", () => moveRow(r, -1)));
+        d.append(btn("↓", "Move row down", () => moveRow(r, 1)));
+        d.append(btn("✕", "Delete this row", () => { snapshot(); layout.layers[layer].splice(r - 1, 1); sel = null; changed(); }));
+      }
+    }
+    g.append(d);
+  }
+}
+
+function btn(text, title, onclick) {
+  const b = document.createElement("button"); b.textContent = text; b.title = title; b.onclick = onclick; return b;
+}
+
+function renderActual() {
+  // A 1:1 preview: the keyboard as it will sit on the physical 320-px panel.
+  const c = $("actualCanvas"), kbH = kbRows() * KEY_H, dpr = window.devicePixelRatio || 1;
+  c.width = PANEL_W * dpr; c.height = kbH * dpr; c.style.width = PANEL_W + "px"; c.style.height = kbH + "px";
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const pg = g.createLinearGradient(0, 0, 0, kbH);
+  pg.addColorStop(0, "#2a323e"); pg.addColorStop(0.06, "#161c26"); pg.addColorStop(1, "#10151d");
+  g.fillStyle = pg; g.fillRect(0, 0, PANEL_W, kbH);
+  g.textAlign = "center"; g.textBaseline = "middle"; g.font = "12px KeyInter, sans-serif";
+  rows().forEach((row, r) => {
+    let x = 0;
+    for (const def of row) {
+      const sx = x * UNIT + 2, sy = r * KEY_H + 2, w = def.w * UNIT - 4, h = KEY_H - 4;
+      g.fillStyle = "#080b11"; rr(g, sx, sy, w, h); g.fill();
+      const cg = g.createLinearGradient(0, sy, 0, sy + h - KEY_LIP);
+      const stops = def.dark ? ["#4b5768", "#2a323d", "#1c222b"] : ["#5f6c7f", "#3a4351", "#2a323e"];
+      cg.addColorStop(0, stops[0]); cg.addColorStop(0.18, stops[1]); cg.addColorStop(1, stops[2]);
+      g.fillStyle = cg; rr(g, sx, sy, w, h - KEY_LIP); g.fill();
+      g.save(); rr(g, sx, sy, w, h - KEY_LIP); g.clip();
+      g.fillStyle = "#dfe6f2"; g.fillText(def.label, sx + w / 2, sy + (h - KEY_LIP) / 2 + 0.5);
+      g.restore();
+      x += def.w;
+    }
+  });
+}
+function rr(g, x, y, w, h) { g.beginPath(); g.roundRect(x, y, Math.max(0, w), h, 4); }
+
+// ------------------------------------------------------------ inspectors
+
+function describe(act) {
+  if ("ch" in act) return act.ctrl ? "ctrl" : "text";
+  if ("key" in act) return "key";
+  if ("layer" in act) return "layer";
+  if ("mod" in act) return act.mod === "ctrl" ? "ctrl-mod" : act.mod;
+  return "settings";
+}
+
+function renderKeyPanel() {
+  const p = $("keyPanel"), def = selDef();
+  if (!def) { p.innerHTML = `<p class="empty">Click a key to edit it.</p>`; return; }
+  const kind = describe(def.act);
+  const layerOpts = Object.keys(layout.layers).map((n) => `<option ${def.act.layer === n ? "selected" : ""}>${esc(n)}</option>`).join("");
+  const keyOpts = keyNames.map((n) => `<option ${def.act.key === n ? "selected" : ""}>${n}</option>`).join("");
+  p.innerHTML = `
+    <div class="field"><label for="fLabel">Label</label><input id="fLabel" value="${esc(def.label)}"></div>
+    <div class="field"><label for="fW">Width</label>
+      <div class="row" style="flex-wrap:nowrap"><input id="fWr" type="range" min="0.25" max="10" step="0.25" value="${def.w}" style="flex:1">
+      <input id="fW" type="number" min="0.25" max="10" step="0.25" value="${def.w}" style="width:66px"></div></div>
+    <div class="field"><label for="fKind">Does</label><select id="fKind">
+      <option value="text" ${kind === "text" ? "selected" : ""}>Types text</option>
+      <option value="ctrl" ${kind === "ctrl" ? "selected" : ""}>Sends Ctrl + character</option>
+      <option value="key" ${kind === "key" ? "selected" : ""}>Sends a named key</option>
+      <option value="layer" ${kind === "layer" ? "selected" : ""}>Switches layer</option>
+      <option value="shift" ${kind === "shift" ? "selected" : ""}>Shift (one-shot, to "upper")</option>
+      <option value="ctrl-mod" ${kind === "ctrl-mod" ? "selected" : ""}>Ctrl modifier (one-shot)</option>
+      <option value="alt" ${kind === "alt" ? "selected" : ""}>Alt modifier (one-shot)</option>
+      <option value="settings" ${kind === "settings" ? "selected" : ""}>Opens settings</option>
+    </select></div>
+    ${"ch" in def.act ? `<div class="field"><label for="fCh">${kind === "ctrl" ? "Character" : "Text"}</label><input id="fCh" value="${esc(def.act.ch)}"></div>` : ""}
+    ${"key" in def.act ? `<div class="field"><label for="fKey">Key</label><select id="fKey">${keyOpts}</select></div>` : ""}
+    ${"layer" in def.act ? `<div class="field"><label for="fLayer">Layer</label><select id="fLayer">${layerOpts}</select></div>` : ""}
+    <div class="field"><label for="fDark">Dark cap</label><div><input id="fDark" type="checkbox" ${def.dark ? "checked" : ""}> <span class="hint">function-key style</span></div></div>
+    <div class="row" style="margin-top:4px">
+      <button id="kLeft" title="Alt+←">← Move</button><button id="kRight" title="Alt+→">Move →</button>
+      <button id="kDup" title="Ctrl+D">Duplicate</button><button id="kIns">Insert after</button>
+      <button id="kDel" class="danger" title="Delete">Delete</button>
+    </div>
+    <p class="hint" style="margin:10px 0 0">${sel.row === 0 ? "This key is in the shared top row: it appears on every layer." : `Row ${sel.row} of the “${esc(layer)}” layer.`}</p>`;
+
+  $("fLabel").oninput = (e) => { snapshot("label"); selDef().label = e.target.value; changed(true); };
+  const setW = (v) => { v = Math.max(SNAP, Math.min(10, Math.round(v / SNAP) * SNAP)); if (!isFinite(v)) return; snapshot("w"); selDef().w = v; changed(true); $("fW").value = v; $("fWr").value = v; };
+  $("fW").onchange = (e) => setW(+e.target.value);
+  $("fWr").oninput = (e) => setW(+e.target.value);
+  $("fKind").onchange = (e) => { snapshot(); setKind(selDef(), e.target.value); changed(); };
+  if ($("fCh")) $("fCh").oninput = (e) => {
+    snapshot("ch"); const d = selDef();
+    // A text key whose label is its text keeps them in step.
+    if (d.label === d.act.ch) d.label = e.target.value;
+    d.act.ch = e.target.value; changed(true); $("fLabel").value = d.label;
+  };
+  if ($("fKey")) $("fKey").onchange = (e) => { snapshot(); selDef().act = { key: e.target.value }; changed(); };
+  if ($("fLayer")) $("fLayer").onchange = (e) => { snapshot(); selDef().act = { layer: e.target.value }; changed(); };
+  $("fDark").onchange = (e) => { snapshot(); if (e.target.checked) selDef().dark = true; else delete selDef().dark; changed(); };
+  $("kLeft").onclick = () => moveKey(-1);
+  $("kRight").onclick = () => moveKey(1);
+  $("kDup").onclick = () => dupKey();
+  $("kIns").onclick = () => { snapshot(); rows()[sel.row].splice(sel.index + 1, 0, newKey()); sel = { row: sel.row, index: sel.index + 1 }; changed(); $("fLabel")?.select(); };
+  $("kDel").onclick = () => delKey();
+}
+
+function setKind(def, kind) {
+  const ch = "ch" in def.act ? def.act.ch : def.label.length === 1 ? def.label : "x";
+  if (kind === "text") def.act = { ch };
+  else if (kind === "ctrl") def.act = { ch: ch[0] || "c", ctrl: true };
+  else if (kind === "key") def.act = { key: "Enter" };
+  else if (kind === "layer") def.act = { layer: Object.keys(layout.layers).find((n) => n !== layer) || layer };
+  else if (kind === "shift") def.act = { mod: "shift" };
+  else if (kind === "ctrl-mod") def.act = { mod: "ctrl" };
+  else if (kind === "alt") def.act = { mod: "alt" };
+  else def.act = { settings: true };
+}
+
+function renderLayerPanel() {
+  const p = $("layerPanel");
+  const refs = countRefs(layer);
+  const special = layer === "lower" ? "The keyboard starts on this layer." : layer === "upper" ? "Shift switches here for one key, then back to “lower”." : `${refs} key${refs === 1 ? "" : "s"} switch${refs === 1 ? "es" : ""} to this layer.`;
+  p.innerHTML = `
+    <div class="field"><label for="fLname">Name</label><input id="fLname" value="${esc(layer)}" ${layer === "lower" || layer === "upper" ? "disabled title='lower and upper have fixed roles'" : ""}></div>
+    <p class="hint" style="margin:0 0 10px">${special}</p>
+    <div class="row"><button id="lDup">Duplicate layer</button><button id="lDel" class="danger" ${layer === "lower" ? "disabled" : ""}>Delete layer</button></div>`;
+  $("fLname").onchange = (e) => renameLayer(layer, e.target.value.trim());
+  $("lDup").onclick = () => newLayer(clone(layout.layers[layer]));
+  $("lDel").onclick = () => {
+    const n = countRefs(layer);
+    if (!confirm(`Delete layer “${layer}”?${n ? ` ${n} key(s) switch to it and will need a new target.` : ""}`)) return;
+    snapshot(); delete layout.layers[layer]; layer = "lower"; sel = null; changed();
+  };
+}
+
+function countRefs(name) {
+  let n = 0;
+  for (const row of [layout.actionRow, ...Object.values(layout.layers).flat()]) for (const d of row) if (d.act.layer === name) n++;
+  return n;
+}
+
+function renameLayer(from, to) {
+  if (!to || to === from) return render();
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(to)) { toast("Layer names are letters, digits, - and _"); return render(); }
+  if (layout.layers[to]) { toast(`“${to}” already exists`); return render(); }
+  snapshot();
+  const next = {};
+  for (const [n, r] of Object.entries(layout.layers)) next[n === from ? to : n] = r;
+  layout.layers = next;
+  for (const row of [layout.actionRow, ...Object.values(layout.layers).flat()]) for (const d of row) if (d.act.layer === from) d.act.layer = to;
+  layer = to; changed();
+}
+
+function newLayer(rowsInit) {
+  let n = 1; while (layout.layers["layer" + n]) n++;
+  const name = prompt("Name for the new layer", "layer" + n);
+  if (!name) return;
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name) || layout.layers[name]) { toast("That name is taken or not a plain identifier"); return; }
+  snapshot();
+  layout.layers[name] = rowsInit || [[newKey()], [], [], []].map((r, i) => i === 0 ? [{ label: "abc", w: 2, act: { layer: "lower" }, dark: true }] : r);
+  layer = name; sel = null; changed();
+  toast(`Add a key somewhere with “Switches layer → ${name}” so it can be reached`);
+}
+
+// ------------------------------------------------------------ editing ops
+
+function newKey() { return { label: "?", w: 1, act: { ch: "?" } }; }
+
+function moveKey(dir) {
+  const row = rows()[sel.row], j = sel.index + dir;
+  if (j < 0 || j >= row.length) return;
+  snapshot(); [row[sel.index], row[j]] = [row[j], row[sel.index]]; sel.index = j; changed();
+}
+function dupKey() {
+  const row = rows()[sel.row]; snapshot();
+  row.splice(sel.index + 1, 0, clone(row[sel.index])); sel.index++; changed();
+}
+function delKey() {
+  const row = rows()[sel.row]; snapshot();
+  row.splice(sel.index, 1);
+  sel = row.length ? { row: sel.row, index: Math.min(sel.index, row.length - 1) } : null; changed();
+}
+function moveRow(r, dir) {
+  const L = layout.layers[layer], i = r - 1, j = i + dir;
+  if (j < 0 || j >= L.length) return;
+  snapshot(); [L[i], L[j]] = [L[j], L[i]]; if (sel && sel.row === r) sel.row = r + dir; changed();
+}
+/** Scale widths so the row spans exactly 10 units on the ¼ grid. */
+function fitRow(row) {
+  const total = units(row), n = row.length;
+  let acc = 0;
+  row.forEach((d, i) => {
+    if (i === n - 1) d.w = Math.max(SNAP, 10 - acc);
+    else { d.w = Math.max(SNAP, Math.round(d.w * 10 / total / SNAP) * SNAP); acc += d.w; }
+  });
+}
+
+// -------------------------------------------------------- pointer: drag/resize
+
+let drag = null;
+$("plate").addEventListener("pointerdown", (e) => {
+  const sock = e.target.closest(".sock"); if (!sock) return;
+  const r = +sock.dataset.r, i = +sock.dataset.i;
+  if (mode === "try") { tryPress(r, i); return; }
+  sel = { row: r, index: i };
+  const def = selDef();
+  drag = { r, i, x0: e.clientX, y0: e.clientY, resize: e.target.classList.contains("grip"), w0: def.w, moved: false, snapped: false };
+  $("plate").setPointerCapture(e.pointerId);
+  render();
+});
+$("plate").addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+  if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+  if (!drag.moved) { drag.moved = true; if (!drag.resize) document.querySelector(`.sock[data-r="${drag.r}"][data-i="${drag.i}"]`)?.classList.add("dragging"); }
+  if (drag.resize) {
+    const w = Math.max(SNAP, Math.min(10, Math.round((drag.w0 + dx / S / UNIT) / SNAP) * SNAP));
+    const def = rows()[drag.r][drag.i];
+    if (w !== def.w) { if (!drag.snapped) { snapshot(); drag.snapped = true; } def.w = w; changed(true); }
+  } else {
+    const t = dropTarget(e); const c = $("caret");
+    if (!t) { c.style.display = "none"; drag.target = null; return; }
+    drag.target = t;
+    Object.assign(c.style, { display: "block", left: t.px * S - 1 + "px", top: (PANEL_H - kbRows() * KEY_H + t.row * KEY_H + 2) * S + "px", height: (KEY_H - 4) * S + "px" });
+  }
+});
+$("plate").addEventListener("pointerup", () => {
+  if (!drag) return;
+  $("caret").style.display = "none";
+  const d = drag; drag = null;
+  if (!d.resize && d.moved && d.target) {
+    const all = rows(), from = all[d.r], to = all[d.target.row];
+    if (to) {
+      let at = d.target.index;
+      if (from === to && at > d.i) at--;
+      if (!(from === to && at === d.i)) {
+        snapshot();
+        const [key] = from.splice(d.i, 1);
+        to.splice(at, 0, key);
+        sel = { row: d.target.row, index: at };
+      }
+    }
+  }
+  changed();
+});
+
+/** Insertion point under the pointer: which row, before which key. */
+function dropTarget(e) {
+  const box = $("plate").getBoundingClientRect();
+  const x = (e.clientX - box.left) / S, y = (e.clientY - box.top) / S;
+  const r = Math.floor(y / KEY_H), row = rows()[r];
+  if (!row) return null;
+  let at = 0, px = 0;
+  for (let i = 0; i < row.length; i++) {
+    const w = row[i].w * UNIT;
+    if (x < px + w / 2) return { row: r, index: i, px };
+    px += w; at = i + 1;
+  }
+  return { row: r, index: at, px };
+}
+
+// ----------------------------------------------------------------- try mode
+
+const tryState = { layer: "lower", ctrl: false, alt: false, pressed: null, out: [] };
+
+/** The device's press handler (app/keyboard.tsx), reporting instead of sending. */
+function tryPress(r, i) {
+  const def = rows()[r][i], act = def.act;
+  tryState.pressed = `${r}:${i}`;
+  setTimeout(() => { tryState.pressed = null; renderStage(); }, 110);
+  const shifted = layer === "upper";
+  const tag = (t) => tryState.out.push({ tag: t });
+  if ("settings" in act) tag("settings");
+  else if ("ch" in act) {
+    if (act.ctrl || tryState.ctrl || tryState.alt) {
+      tag(`${act.ctrl || tryState.ctrl ? "C-" : ""}${tryState.alt ? "M-" : ""}${act.ch}`);
+      tryState.alt = false; tryState.ctrl = false;
+    } else tryState.out.push(act.ch);
+    if (shifted) layer = "lower";
+  } else if ("key" in act) {
+    tag(`${tryState.ctrl ? "C-" : ""}${tryState.alt ? "M-" : ""}${shifted ? "S-" : ""}${act.key}`);
+    tryState.alt = false; tryState.ctrl = false;
+    if (shifted) layer = "lower";
+  } else if ("layer" in act) {
+    if (layout.layers[act.layer]) layer = act.layer; else toast(`layer “${act.layer}” does not exist`);
+  } else if ("mod" in act) {
+    if (act.mod === "shift") { if (layout.layers.upper) layer = shifted ? "lower" : "upper"; }
+    else if (act.mod === "alt") tryState.alt = !tryState.alt;
+    else tryState.ctrl = !tryState.ctrl;
+  }
+  renderOut(); render();
+}
+function renderOut() {
+  $("out").innerHTML = tryState.out.map((t) => typeof t === "string" ? esc(t) : `<span class="tok">${esc(t.tag)}</span>`).join("");
+}
+$("clearOut").onclick = () => { tryState.out = []; renderOut(); };
+
+// ----------------------------------------------------------- server traffic
+
+let checkTimer = 0;
+function changed(soft) {
+  if (soft) { renderStage(); renderActual(); $("hdr").classList.toggle("is-dirty", JSON.stringify(layout) !== savedJson); $("undo").disabled = !undoStack.length; }
+  else render();
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(runCheck, 250);
+}
+
+async function runCheck() {
+  const res = await fetch("/api/check", { method: "POST", body: JSON.stringify(layout) });
+  showChecks(await res.json());
+}
+function showChecks({ errors = [], warnings = [] }) {
+  const ul = $("probList");
+  ul.innerHTML = errors.map((e) => `<li class="e">✕ ${esc(e)}</li>`).join("") + warnings.map((w) => `<li class="w">! ${esc(w)}</li>`).join("")
+    || `<li class="ok">✓ Layout is valid</li>`;
+  $("save").disabled = errors.length > 0;
+  $("build").disabled = errors.length > 0;
+}
+
+async function load() {
+  const res = await fetch("/api/layout"), data = await res.json();
+  if (data.error) { toast(data.error); return; }
+  layout = data.layout; keyNames = data.keyNames; savedJson = JSON.stringify(layout);
+  undoStack.length = 0; redoStack.length = 0; sel = null;
+  showChecks(data.check); render();
+}
+
+async function save() {
+  const res = await fetch("/api/layout", { method: "POST", body: JSON.stringify(layout) });
+  const data = await res.json();
+  showChecks(data);
+  if (!data.saved) { toast("Not saved: fix the errors under Checks"); return false; }
+  savedJson = JSON.stringify(layout); render(); toast(`Saved ${data.file}`);
+  return true;
+}
+
+async function run(path, body) {
+  const log = $("log"); log.style.display = "block"; log.textContent = "";
+  $("build").disabled = $("deploy").disabled = true;
+  try {
+    const res = await fetch(path, { method: "POST", body: body && JSON.stringify(body) });
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      log.textContent += dec.decode(value, { stream: true }); log.scrollTop = log.scrollHeight;
+    }
+  } catch (e) { log.textContent += `\n${e}`; }
+  $("build").disabled = $("deploy").disabled = false;
+}
+
+$("save").onclick = save;
+$("revert").onclick = () => { if (JSON.stringify(layout) === savedJson || confirm("Discard unsaved changes and reload the file?")) load(); };
+$("undo").onclick = () => restore(undoStack, redoStack);
+$("redo").onclick = () => restore(redoStack, undoStack);
+$("addRow").onclick = () => { snapshot(); layout.layers[layer].push([newKey()]); sel = { row: layout.layers[layer].length, index: 0 }; changed(); };
+$("build").onclick = async () => { if (await save()) run("/api/build"); };
+$("ip").value = localStorage.getItem("pt-ip") || "";
+$("ftpPort").value = localStorage.getItem("pt-ftp") || "5000";
+$("deploy").onclick = () => {
+  localStorage.setItem("pt-ip", $("ip").value.trim()); localStorage.setItem("pt-ftp", $("ftpPort").value.trim());
+  run("/api/deploy", { host: $("ip").value.trim(), ftpPort: +$("ftpPort").value || 5000 });
+};
+for (const b of document.querySelectorAll("#modeSeg button")) b.onclick = () => {
+  mode = b.dataset.mode;
+  for (const o of document.querySelectorAll("#modeSeg button")) o.classList.toggle("on", o === b);
+  if (mode === "try") { tryState.ctrl = tryState.alt = false; layer = "lower"; }
+  render();
+};
+
+document.addEventListener("keydown", (e) => {
+  const inField = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName);
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
+  if (mod && e.key.toLowerCase() === "z" && !inField) { e.preventDefault(); e.shiftKey ? restore(redoStack, undoStack) : restore(undoStack, redoStack); return; }
+  if (mod && e.key.toLowerCase() === "y" && !inField) { e.preventDefault(); restore(redoStack, undoStack); return; }
+  if (e.key === "Escape" && inField) { document.activeElement.blur(); return; }
+  if (inField || mode !== "edit") return;
+  if (!sel) { if (e.key.startsWith("Arrow")) { sel = { row: 1, index: 0 }; render(); } return; }
+  const all = rows();
+  if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); moveKey(e.key === "ArrowLeft" ? -1 : 1); return; }
+  if (e.key === "ArrowLeft") sel.index = Math.max(0, sel.index - 1);
+  else if (e.key === "ArrowRight") sel.index = Math.min(all[sel.row].length - 1, sel.index + 1);
+  else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    // Move to the key under the same x in the neighbouring row.
+    const cx = all[sel.row].slice(0, sel.index).reduce((s, d) => s + d.w, 0) + all[sel.row][sel.index].w / 2;
+    let r = sel.row + (e.key === "ArrowUp" ? -1 : 1);
+    while (all[r] && all[r].length === 0) r += e.key === "ArrowUp" ? -1 : 1;
+    if (!all[r]) return;
+    let x = 0, idx = all[r].length - 1;
+    for (let i = 0; i < all[r].length; i++) { if (cx < x + all[r][i].w) { idx = i; break; } x += all[r][i].w; }
+    sel = { row: r, index: idx };
+  }
+  else if (e.key === "[" || e.key === "]") { snapshot("w"); const d = selDef(); d.w = Math.max(SNAP, Math.min(10, d.w + (e.key === "]" ? SNAP : -SNAP))); }
+  else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); delKey(); return; }
+  else if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); dupKey(); return; }
+  else if (e.key === "Enter") { e.preventDefault(); $("fLabel")?.select(); return; }
+  else return;
+  e.preventDefault(); changed();
+});
+
+window.addEventListener("resize", () => { const s = S; fitScale(); if (s !== S) render(); });
+window.addEventListener("beforeunload", (e) => { if (layout && JSON.stringify(layout) !== savedJson) e.preventDefault(); });
+fitScale();
+document.fonts.load("12px KeyInter").finally(load);
+</script>
+</body>
+</html>
