@@ -7,8 +7,8 @@ first, and this repository moves its pin.
 
 ## Conventions
 
-- Publish a change as a **draft pull request** before treating it as ready,
-  and name it with Conventional Commits — `feat(app): …`, `fix(host): …`.
+- Commit and push directly, in short commits named with Conventional
+  Commits — `feat(app): …`, `fix(host): …`. No pull requests.
 - Import PocketJS runtime, host component, lifecycle, input and animation APIs
   from `@pocketjs/framework/*`; import Solid primitives and control flow from
   `solid-js`.
