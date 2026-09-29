@@ -69,7 +69,18 @@ function stream(cmd: string[]): Response {
 
 const json = (value: unknown, status = 200) => Response.json(value, { status });
 
-const server = Bun.serve({
+const serve = (options: Parameters<typeof Bun.serve>[0]) => {
+  try {
+    return Bun.serve(options);
+  } catch (error) {
+    if ((error as { code?: string }).code !== "EADDRINUSE") throw error;
+    console.error(`keyboard editor: port ${port} is taken — an editor may already be running at http://127.0.0.1:${port}/`);
+    console.error(`stop it, or pick another port: bun run keyboard --port ${port + 1}`);
+    process.exit(1);
+  }
+};
+
+const server = serve({
   hostname: "127.0.0.1",
   port,
   idleTimeout: 0,
