@@ -4,7 +4,6 @@ import { GhosttyCore } from "@wterm/ghostty";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { SessionHistory } from "./history.ts";
-import { nowUs, trace, tracing } from "./trace.ts";
 export interface SessionOptions { shell: string; cwd: string; login: boolean }
 export interface SessionEvents { output(): void; titles(): void; exit(sid: number): void }
 
@@ -76,13 +75,9 @@ export class Session {
       this.#backlog.push(data);
       return;
     }
-    const t0 = tracing ? nowUs() : 0;
     this.history.observe(data);
-    const t1 = tracing ? nowUs() : 0;
     core.writeString(data);
-    const t2 = tracing ? nowUs() : 0;
     this.history.update(core);
-    if (tracing) trace("pty.data", { sid: this.sid, bytes: data.length, head: data.slice(0, 40), observeUs: t1 - t0, ghosttyUs: t2 - t1, historyUs: nowUs() - t2 });
     // Programs ask the terminal questions — what are you, where is the
     // cursor, what colours do you use — and wait for the answer. The core
     // composes the replies; nobody but us can put them back on the PTY.
@@ -91,9 +86,7 @@ export class Session {
       if (response === null || response === "") break;
       this.pty.write(response);
     }
-    const t3 = tracing ? nowUs() : 0;
     this.refreshTitle();
-    if (tracing) trace("pty.title", { sid: this.sid, titleUs: nowUs() - t3 });
     this.events.output();
   }
 
@@ -131,7 +124,6 @@ export class Session {
   }
 
   write(data: string) {
-    if (tracing) trace("pty.write", { sid: this.sid, bytes: data.length, head: data.slice(0, 16) });
     if (data.length > 0) this.pty.write(data);
   }
 
