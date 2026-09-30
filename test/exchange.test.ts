@@ -16,6 +16,19 @@ test("lost replies retain output and never re-execute input", () => {
   expect(executions).toBe(1);
 });
 
+test("a parked exchange asked again picks up output pushed while it waited", () => {
+  const mailbox = new Mailbox(); let pushes = 0;
+  mailbox.onPush = () => pushes++;
+  const req: ExchangeRequest = { replica: "test-replica", epoch: "mac", received: 0 };
+  const empty = mailbox.exchange(req, "mac", () => {});
+  expect(empty.data).toBeUndefined();
+  mailbox.push({ t: "hello", proto: TERM_PROTO, name: "Mac" });
+  expect(pushes).toBe(1);
+  const later = mailbox.exchange(req, "mac", () => {});
+  expect(later.sequence).toBe(empty.sequence + 1);
+  expect(later.data).toContain("hello");
+});
+
 test("nested wire records obey both UTF-8 and payload budgets", () => {
   for (const text of ["\\\"\n".repeat(2000), "你好😀".repeat(2000), "A".repeat(6000)]) {
     const mailbox = new Mailbox();

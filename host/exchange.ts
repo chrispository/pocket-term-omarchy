@@ -20,6 +20,8 @@ export class Mailbox {
   private held?: { data: string; more: boolean };
   private error?: string;
   private overflowed = false;
+  /** Called after a line is queued, so a parked exchange can leave with it. */
+  onPush?: () => void;
   get busy() { return this.queue.length > 0 || this.held !== undefined; }
 
   push(line: HostLine) {
@@ -30,9 +32,10 @@ export class Mailbox {
       // the terminal process or terminate other users' PTYs.
       this.identity = randomUUID(); this.ack = 0; this.sequence = 0;
       this.queue = []; this.chars = 0; this.head = 0; this.held = undefined;
-      this.overflowed = true; return;
+      this.overflowed = true; this.onPush?.(); return;
     }
     this.queue.push(text); this.chars += text.length;
+    this.onPush?.();
   }
 
   input(request: InputRequest, epoch: string, apply: (line: ClientLine) => void): InputReply {

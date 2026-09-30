@@ -7,7 +7,7 @@ import { createServer as createHttpServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { Mailbox } from "./exchange.ts";
-import { LIMITS, type ExchangeRequest } from "../shared/exchange.ts";
+import { LIMITS, type ExchangeReply, type ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY, type HistoryRequest, type HistoryBatchRequest } from "../shared/history.ts";
 import { historyBatchReply, validateHistoryBatch } from "./history-batch.ts";
 import { hostname, tmpdir } from "node:os";
@@ -137,6 +137,11 @@ const FLUSH_COALESCE_MS = 2;
 /** Backstop for the changes no PTY byte announces — a scrollback scrub, a
  *  cursor that moved because a replica attached. */
 const FLUSH_IDLE_MS = 100;
+/** How long an exchange with nothing to deliver waits on the companion for
+ *  output. The device keeps one exchange in flight, so answering it empty
+ *  left a fresh echo in the mailbox until the next request crossed the Wi-Fi.
+ *  Well inside the worker's 5 s fetch and the device's 10 s deadline. */
+const EXCHANGE_HOLD_MS = 1000;
 
 /** Keep one atlas piece within a typical offload reply so changed rows can
  * take the next output turn instead of waiting through a large atlas line. */
@@ -173,6 +178,8 @@ class Conn {
   lastRx = Date.now();
   sawClientHello = false;
   paste?: { sid: number; text: string; at: number };
+  /** The exchange parked until the mailbox has something to deliver. */
+  parked?: () => void;
 
   constructor(socket: Socket) {
     this.socket = socket;
@@ -1181,17 +1188,56 @@ const broker = createHttpServer(async (request, response) => {
       // This adapter owns no socket; PTYs and views remain in the same hub
       // as the loopback desktop mirrors.
       conn = new Conn({ destroy() {}, writableLength: 0 } as unknown as Socket);
+      const created = conn;
       conn.mailbox = new Mailbox(); replicas.set(input.replica, conn); hub.conns.add(conn);
+      // A grid is pushed as several lines in one pass; release after it.
+      conn.mailbox.onPush = () => { if (created.parked) setImmediate(() => created.parked?.()); };
     }
+    const owner = conn;
+    const exchange = () => owner.mailbox!.exchange(input, `${epoch}-${owner.mailbox!.identity}`, line => handleLine(owner, line));
     const reply = request.url === "/input"
-      ? conn.mailbox!.input(input as unknown as import("../shared/exchange.ts").InputRequest, `${epoch}-${conn.mailbox!.identity}`, line => handleLine(conn!, line))
-      : conn.mailbox!.exchange(input, `${epoch}-${conn.mailbox!.identity}`, line => handleLine(conn!, line));
+      ? conn.mailbox!.input(input as unknown as import("../shared/exchange.ts").InputRequest, `${epoch}-${conn.mailbox!.identity}`, line => handleLine(owner, line))
+      : exchange();
+    // An exchange that only acknowledges and finds nothing waits here for
+    // output. Asking the mailbox again is safe: the acknowledgement is
+    // idempotent, and a request carrying a command is never parked.
+    if (request.url === "/exchange" && input.command === undefined && input.epoch === reply.epoch
+      && (reply as ExchangeReply).data === undefined && reply.error === undefined) {
+      park(owner, response, exchange);
+      scheduleFlush();
+      return;
+    }
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(reply));
     if (!conn.mailbox!.busy) scheduleFlush();
   } catch (error) { response.writeHead(400).end(String(error).slice(0, 160)); }
 });
 broker.requestTimeout = 5000;
+
+function park(conn: Conn, response: import("node:http").ServerResponse, exchange: () => ExchangeReply) {
+  conn.parked?.(); // a newer request supersedes; the older one leaves now
+  let open = true;
+  const release = () => {
+    if (!open) return;
+    open = false; clearTimeout(timer);
+    if (conn.parked === release) conn.parked = undefined;
+    try {
+      const reply = exchange();
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify(reply));
+    } catch (error) { response.writeHead(400).end(String(error).slice(0, 160)); }
+    if (!conn.mailbox!.busy) scheduleFlush();
+  };
+  const timer = setTimeout(release, EXCHANGE_HOLD_MS);
+  // The worker gave up or its provider reconnected: nothing was taken from
+  // the mailbox for this request, so there is nothing to put back.
+  response.on("close", () => {
+    if (!open) return;
+    open = false; clearTimeout(timer);
+    if (conn.parked === release) conn.parked = undefined;
+  });
+  conn.parked = release;
+}
 broker.listen(0, "127.0.0.1", () => {
   const endpoint = `http://127.0.0.1:${(broker.address() as { port: number }).port}/exchange`;
   process.send?.({ ready: true, endpoint, token });
