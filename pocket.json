@@ -16,7 +16,8 @@
       ],
       "enhances": [
         "input.analog.left",
-        "input.analog.right"
+        "input.analog.right",
+        "audio.capture"
       ]
     }
   },

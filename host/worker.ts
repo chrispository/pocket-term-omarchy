@@ -16,5 +16,10 @@ self.onmessage = async event => {
     "term.history": payload => forward("/history", payload),
     "term.history.batch": payload => forward("/history-batch", payload),
     "term.input": payload => forward("/input", payload),
+    "term.voice.begin": payload => forward("/voice/begin", payload),
+    "term.voice.chunk": payload => forward("/voice/chunk", payload),
+    "term.voice.end": payload => forward("/voice/end", payload),
+    "term.voice.status": payload => forward("/voice/status", payload),
+    "term.voice.cancel": payload => forward("/voice/cancel", payload),
   }, event.data));
 };

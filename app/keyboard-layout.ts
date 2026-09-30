@@ -6,17 +6,18 @@
 import type { KeyboardConfig } from "../shared/keyboard.ts";
 
 export const KEYBOARD: KeyboardConfig = {
-  defaults: { layout: "classic", touchpad: true },
+  defaults: { layout: "classic", touchpad: false },
   layouts: {
     classic: {
       actionRow: [
-        { label: "esc", w: 1.25, act: { key: "Escape" }, dark: true },
-        { label: "tab", w: 1.25, act: { key: "Tab" }, dark: true },
-        { label: "ctl", w: 1.25, act: { mod: "ctrl" }, dark: true },
-        { label: "alt", w: 1.25, act: { mod: "alt" }, dark: true },
-        { label: "pgu", w: 1.25, act: { key: "PageUp" }, dark: true },
-        { label: "pgd", w: 1.25, act: { key: "PageDown" }, dark: true },
-        { label: "settings", w: 2.5, act: { settings: true }, dark: true },
+        { label: "esc", w: 1, act: { key: "Escape" }, dark: true },
+        { label: "tab", w: 1, act: { key: "Tab" }, dark: true },
+        { label: "ctl", w: 1, act: { mod: "ctrl" }, dark: true },
+        { label: "alt", w: 1, act: { mod: "alt" }, dark: true },
+        { label: "pgu", w: 1, act: { key: "PageUp" }, dark: true },
+        { label: "pgd", w: 1, act: { key: "PageDown" }, dark: true },
+        { label: "voice", w: 2, act: { voice: true }, dark: true },
+        { label: "settings", w: 2, act: { settings: true }, dark: true },
       ],
       layers: {
         lower: [
@@ -232,14 +233,15 @@ export const KEYBOARD: KeyboardConfig = {
     },
     split: {
       actionRow: [
-        { label: "esc", w: 1.09375, act: { key: "Escape" }, dark: true },
-        { label: "tab", w: 1.09375, act: { key: "Tab" }, dark: true },
-        { label: "ctl", w: 1.09375, act: { mod: "ctrl" }, dark: true },
-        { label: "alt", w: 1.09375, act: { mod: "alt" }, dark: true },
-        { label: "", w: 1.25, act: { gap: true } },
-        { label: "pgu", w: 1.09375, act: { key: "PageUp" }, dark: true },
-        { label: "pgd", w: 1.09375, act: { key: "PageDown" }, dark: true },
-        { label: "settings", w: 2.1875, act: { settings: true }, dark: true },
+        { label: "esc", w: 0.875, act: { key: "Escape" }, dark: true },
+        { label: "tab", w: 0.875, act: { key: "Tab" }, dark: true },
+        { label: "ctl", w: 0.875, act: { mod: "ctrl" }, dark: true },
+        { label: "alt", w: 0.875, act: { mod: "alt" }, dark: true },
+        { label: "", w: 0.75, act: { gap: true } },
+        { label: "pgu", w: 0.875, act: { key: "PageUp" }, dark: true },
+        { label: "pgd", w: 0.875, act: { key: "PageDown" }, dark: true },
+        { label: "voice", w: 2, act: { voice: true }, dark: true },
+        { label: "settings", w: 2, act: { settings: true }, dark: true },
       ],
       layers: {
         lower: [

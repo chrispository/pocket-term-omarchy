@@ -16,6 +16,7 @@ import { TERM_LAYOUT, TABS_PER_PAGE, tabPage } from "../shared/layout.ts";
 import { createTermStore, type TermStore } from "./store.ts";
 import { createCursorStick } from "./stick.ts";
 import { TermSettings } from "./settings.tsx";
+import { createDictation, type DictationState } from "./dictation.ts";
 
 const TAB_H = 26;
 const TAB_W = 72;
@@ -58,6 +59,9 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   const [preview, setPreview] = createSignal(true);
   const [layoutName, setLayoutName] = createSignal(KEYBOARD.defaults.layout);
   const [touchpadOn, setTouchpadOn] = createSignal(KEYBOARD.defaults.touchpad);
+  const [dictationState, setDictationState] = createSignal<DictationState>("ready");
+  const dictation = createDictation(store.activeSid, setDictationState);
+  onCleanup(() => dictation.dispose());
   const layout = () => KEYBOARD.layouts[layoutName()];
   // Without the touchpad the keyboard takes its band and the rows grow.
   const kb = createMemo(() => keyboardGeometry(layout(), touchpadOn()));
@@ -93,6 +97,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
       stickVelocity = 0;
     }
     store.frame();
+    dictation.frame();
 
     const pressed = buttons & ~prevButtons;
     prevButtons = buttons;
@@ -290,6 +295,8 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
             rows={kb().rows}
             keyH={kb().keyH}
             onSettings={() => { store.history?.stop(); setSettingsOpen(true); }}
+            onVoice={() => dictation.toggle()}
+            voiceState={dictationState()}
             onChar={(ch) => {
               store.sendText(ch);
               setCtrlArmed(false);

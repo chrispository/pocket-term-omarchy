@@ -9,8 +9,8 @@ import { Mailbox } from "./exchange.ts";
 import { LIMITS, type ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY, type HistoryRequest, type HistoryBatchRequest } from "../shared/history.ts";
 import { historyBatchReply, validateHistoryBatch } from "./history-batch.ts";
-import { hostname } from "node:os";
-import { accessSync, chmodSync, constants as fsConstants, existsSync, statSync } from "node:fs";
+import { homedir, hostname, tmpdir } from "node:os";
+import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -813,8 +813,203 @@ console.log(`[term] shell ${options.shell}, host name "${options.name}"`);
 // this process; reconnecting its worker never tears down a PTY.
 const epoch = randomUUID(), token = randomBytes(32).toString("hex");
 const replicas = new Map<string, Conn>();
+type VoiceState = "recording" | "transcribing" | "done" | "empty" | "error" | "cancelled";
+interface VoiceCapture {
+  id: string;
+  sid: number;
+  state: VoiceState;
+  createdAt: number;
+  touched: number;
+  parts: Buffer[];
+  bytes: number;
+  nextSeq: number;
+  lastChunk?: string;
+  child?: ChildProcess;
+  directory?: string;
+  error?: string;
+}
+const voiceCaptures = new Map<string, VoiceCapture>();
+const VOICE_SAMPLE_RATE = 16364.479;
+const VOICE_MAX_BYTES = Math.ceil(VOICE_SAMPLE_RATE * 2 * 60);
+const VOICE_CHUNK_BYTES = 1200;
+
+function voiceCapture(id: unknown): VoiceCapture {
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)) throw new Error("Invalid dictation id");
+  const capture = voiceCaptures.get(id);
+  if (!capture) throw new Error("Dictation session expired");
+  capture.touched = Date.now();
+  return capture;
+}
+
+function resampleVoiceWav(parts: Buffer[], byteLength: number): Buffer {
+  const pcm = Buffer.concat(parts, byteLength);
+  const inputFrames = Math.floor(pcm.length / 2);
+  const outputFrames = Math.floor(inputFrames * 16000 / VOICE_SAMPLE_RATE);
+  const outputBytes = outputFrames * 2;
+  const wav = Buffer.allocUnsafe(44 + outputBytes);
+  wav.write("RIFF", 0); wav.writeUInt32LE(36 + outputBytes, 4); wav.write("WAVE", 8);
+  wav.write("fmt ", 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(outputBytes, 40);
+  for (let i = 0; i < outputFrames; i += 1) {
+    const position = i * VOICE_SAMPLE_RATE / 16000;
+    const left = Math.floor(position), fraction = position - left;
+    const a = pcm.readInt16LE(left * 2);
+    const b = left + 1 < inputFrames ? pcm.readInt16LE((left + 1) * 2) : a;
+    const sample = Math.max(-32768, Math.min(32767, Math.round(a + (b - a) * fraction)));
+    wav.writeInt16LE(sample, 44 + i * 2);
+  }
+  return wav;
+}
+
+function voxtypeFileConfig(outputPath: string): string {
+  const sourcePath = join(homedir(), ".config/voxtype/config.toml");
+  let text = existsSync(sourcePath) ? readFileSync(sourcePath, "utf8") : "";
+  const header = /^\s*\[output\]\s*$/m.exec(text);
+  if (!header || header.index === undefined) {
+    const nested = /^\s*\[output\.[^\]]+\]\s*$/m.exec(text);
+    const section = `[output]\nmode = "file"\nfile_path = ${JSON.stringify(outputPath)}\n\n`;
+    text = nested?.index === undefined
+      ? `${text.trimEnd()}\n\n${section}`
+      : `${text.slice(0, nested.index)}${section}${text.slice(nested.index)}`;
+    return text;
+  }
+  const start = header.index, bodyStart = start + header[0].length;
+  const next = /^\s*\[[^\]]+\]\s*$/gm;
+  next.lastIndex = bodyStart;
+  const endMatch = next.exec(text), end = endMatch?.index ?? text.length;
+  let section = text.slice(start, end);
+  const setValue = (name: string, value: string) => {
+    const key = new RegExp(`^[ \\t]*${name}[ \\t]*=.*$`, "m");
+    if (key.test(section)) section = section.replace(key, `${name} = ${value}`);
+    else section = `${section.trimEnd()}\n${name} = ${value}\n`;
+  };
+  setValue("mode", '"file"');
+  setValue("file_path", JSON.stringify(outputPath));
+  return text.slice(0, start) + section + text.slice(end);
+}
+
+function cleanVoiceFiles(capture: VoiceCapture) {
+  if (!capture.directory) return;
+  try { rmSync(capture.directory, { recursive: true, force: true }); } catch { /* best effort */ }
+  capture.directory = undefined;
+}
+
+function transcribeVoice(capture: VoiceCapture) {
+  try {
+    const directory = mkdtempSync(join(tmpdir(), "pocket-term-voice-"));
+    capture.directory = directory;
+    const wavPath = join(directory, "capture.wav"), textPath = join(directory, "transcript.txt");
+    const configPath = join(directory, "voxtype.toml");
+    writeFileSync(wavPath, resampleVoiceWav(capture.parts, capture.bytes), { mode: 0o600 });
+    capture.parts = [];
+    writeFileSync(configPath, voxtypeFileConfig(textPath), { mode: 0o600 });
+    const child = spawn("voxtype", ["--config", configPath, "transcribe", wavPath], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    capture.child = child;
+    let diagnostic = "", settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      child.kill("SIGTERM");
+      capture.state = "error";
+      capture.error = "Voxtype transcription timed out";
+      capture.touched = Date.now();
+      settled = true;
+      cleanVoiceFiles(capture);
+    }, 5 * 60 * 1000);
+    child.stderr?.on("data", chunk => { diagnostic = (diagnostic + String(chunk)).slice(-500); });
+    child.once("error", error => {
+      if (settled) return;
+      settled = true; clearTimeout(timeout);
+      capture.child = undefined;
+      capture.state = "error"; capture.error = error.message.slice(0, 160);
+      capture.touched = Date.now(); cleanVoiceFiles(capture);
+    });
+    child.once("close", code => {
+      if (settled) return;
+      settled = true; clearTimeout(timeout); capture.child = undefined;
+      if (capture.state === "cancelled") { cleanVoiceFiles(capture); return; }
+      if (code !== 0) {
+        capture.state = "error";
+        capture.error = (diagnostic.trim() || `Voxtype exited with code ${code}`).slice(-160);
+        capture.touched = Date.now(); cleanVoiceFiles(capture); return;
+      }
+      try {
+        const transcript = existsSync(textPath)
+          ? readFileSync(textPath, "utf8").replace(/[\r\n]+$/, "")
+          : "";
+        if (!transcript.trim()) capture.state = "empty";
+        else if (transcript.length > 8192) throw new Error("Dictation transcript exceeds limit");
+        else {
+          const session = hub.sessions.get(capture.sid);
+          if (!session) throw new Error("Terminal session closed before dictation completed");
+          session.paste(transcript);
+          capture.state = "done";
+          scheduleFlush();
+        }
+      } catch (error) {
+        capture.state = "error";
+        capture.error = String(error).slice(0, 160);
+      }
+      capture.touched = Date.now(); cleanVoiceFiles(capture);
+    });
+  } catch (error) {
+    capture.state = "error";
+    capture.error = String(error).slice(0, 160);
+    capture.touched = Date.now(); cleanVoiceFiles(capture);
+  }
+}
+
+function handleVoiceRequest(path: string, body: string): string {
+  const input = JSON.parse(body) as Record<string, unknown>;
+  if (path === "/voice/begin") {
+    const sid = input.sid;
+    if (!Number.isSafeInteger(sid) || (sid as number) < 1 || !hub.sessions.has(sid as number)) throw new Error("Terminal no longer exists");
+    if (typeof input.sampleRate !== "number" || Math.abs(input.sampleRate - VOICE_SAMPLE_RATE) > 0.5) throw new Error("Unsupported microphone sample rate");
+    const active = [...voiceCaptures.values()].filter(c => c.state === "recording" || c.state === "transcribing");
+    if (active.length >= 2) throw new Error("Dictation limit reached");
+    const id = randomUUID(), now = Date.now();
+    voiceCaptures.set(id, { id, sid: sid as number, state: "recording", createdAt: now, touched: now, parts: [], bytes: 0, nextSeq: 0 });
+    return JSON.stringify({ id, state: "recording" });
+  }
+
+  const capture = voiceCapture(input.id);
+  if (path === "/voice/chunk") {
+    if (capture.state !== "recording") throw new Error("Dictation is not recording");
+    if (!Number.isSafeInteger(input.seq) || (input.seq as number) < 0 || typeof input.data !== "string" || input.data.length > 1600 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.data)) throw new Error("Invalid audio chunk");
+    const seq = input.seq as number;
+    if (seq === capture.nextSeq - 1 && input.data === capture.lastChunk) return JSON.stringify({ seq, duplicate: true });
+    if (seq !== capture.nextSeq) throw new Error("Audio chunks arrived out of order");
+    const bytes = Buffer.from(input.data, "base64");
+    if (bytes.length === 0 || bytes.length > VOICE_CHUNK_BYTES || bytes.length % 2 || bytes.toString("base64") !== input.data) throw new Error("Invalid PCM data");
+    if (capture.bytes + bytes.length > VOICE_MAX_BYTES) throw new Error("Dictation reached the 60 second limit");
+    capture.parts.push(bytes); capture.bytes += bytes.length; capture.lastChunk = input.data; capture.nextSeq += 1;
+    return JSON.stringify({ seq });
+  }
+  if (path === "/voice/end") {
+    if (capture.state === "recording") {
+      capture.state = "transcribing";
+      transcribeVoice(capture);
+    }
+    return JSON.stringify({ state: capture.state });
+  }
+  if (path === "/voice/status") return JSON.stringify({ state: capture.state, error: capture.error });
+  if (path === "/voice/cancel") {
+    if (capture.state === "recording" || capture.state === "transcribing") {
+      capture.state = "cancelled";
+      capture.child?.kill("SIGTERM");
+      capture.parts = [];
+      cleanVoiceFiles(capture);
+    }
+    return JSON.stringify({ state: capture.state });
+  }
+  throw new Error("Unknown dictation route");
+}
+
 const broker = createHttpServer(async (request, response) => {
-  if (request.method !== "POST" || !["/exchange", "/history", "/history-batch", "/input"].includes(request.url ?? "") || request.headers.authorization !== `Bearer ${token}`) {
+  if (request.method !== "POST" || !["/exchange", "/history", "/history-batch", "/input", "/voice/begin", "/voice/chunk", "/voice/end", "/voice/status", "/voice/cancel"].includes(request.url ?? "") || request.headers.authorization !== `Bearer ${token}`) {
     response.writeHead(403).end(); return;
   }
   try {
@@ -822,6 +1017,11 @@ const broker = createHttpServer(async (request, response) => {
     for await (const chunk of request) {
       body += chunk;
       if (Buffer.byteLength(body) > 4096) throw new Error("Request exceeds budget");
+    }
+    if (request.url?.startsWith("/voice/")) {
+      response.setHeader("content-type", "application/json");
+      response.end(handleVoiceRequest(request.url, body));
+      return;
     }
     if (request.url === "/history-batch") {
       const input = JSON.parse(body) as HistoryBatchRequest;
@@ -892,12 +1092,28 @@ broker.listen(0, "127.0.0.1", () => {
   console.log("[term] durable terminal worker ready (paired offload + loopback mirrors)");
 });
 setInterval(() => {
+  const now = Date.now();
+  for (const [id, capture] of voiceCaptures) {
+    if (capture.state === "recording" && now - capture.createdAt > 75_000) {
+      capture.state = "error"; capture.error = "Dictation expired"; capture.parts = []; capture.touched = now;
+    }
+    if (now - capture.touched > 10 * 60 * 1000) {
+      capture.child?.kill("SIGTERM"); cleanVoiceFiles(capture); voiceCaptures.delete(id);
+    }
+  }
   for (const [id, conn] of replicas) {
-    if (Date.now() - conn.mailbox!.touched > 30 * 60 * 1000) {
+    if (now - conn.mailbox!.touched > 30 * 60 * 1000) {
       replicas.delete(id); hub.conns.delete(conn);
     }
   }
 }, 60000).unref();
+
+process.once("exit", () => {
+  for (const capture of voiceCaptures.values()) {
+    capture.child?.kill("SIGTERM");
+    cleanVoiceFiles(capture);
+  }
+});
 
 function validateClientLine(line: ClientLine) {
   if (!line || typeof line !== "object") throw new Error("Invalid terminal command");

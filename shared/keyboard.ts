@@ -25,6 +25,7 @@ export type KeyAction =
   | { key: KeyName }
   | { layer: LayerName }
   | { mod: "shift" | "ctrl" | "alt" }
+  | { voice: true }
   | { settings: true }
   /** Empty space: drawn as nothing and dead to touch. Splits a row. */
   | { gap: true };
@@ -141,6 +142,7 @@ function actSource(act: KeyAction): string {
   if ("layer" in act) return `{ layer: ${str(act.layer)} }`;
   if ("mod" in act) return `{ mod: ${str(act.mod)} }`;
   if ("gap" in act) return `{ gap: true }`;
+  if ("voice" in act) return `{ voice: true }`;
   return `{ settings: true }`;
 }
 

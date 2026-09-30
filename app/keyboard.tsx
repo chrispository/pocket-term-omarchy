@@ -4,7 +4,7 @@
 // a fixed grid of 26 px rows on a 32 px column unit (10 units = the 320 px
 // panel), hit by one auxiliary-surface gesture on the keyboard root.
 //
-// Row 0 is the terminal action strip (Esc/Tab/Ctrl/Alt/paging/settings); the
+// Row 0 is the terminal action strip (Esc/Tab/Ctrl/Alt/paging/dictation/settings); the
 // rows below it are the character layers. The keys themselves are data in
 // ./keyboard-layout.ts, edited with `bun run keyboard`. Shift and Ctrl are
 // one-shot: they arm, the next key consumes them — the classic touch-phone
@@ -15,6 +15,7 @@ import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import { KEY_H, UNIT, type KeyboardLayout, type KeyDef, type LayerName } from "../shared/keyboard.ts";
+import type { DictationState } from "./dictation.ts";
 
 export { KEY_H };
 export type { KeyAction, LayerName } from "../shared/keyboard.ts";
@@ -51,6 +52,8 @@ export interface KeyboardProps {
   rows: number;
   keyH: number;
   onSettings: () => void;
+  onVoice: () => void;
+  voiceState: DictationState;
   onChar: (ch: string) => void;
   /** `name` is a KeyName, or a single character when ctrl is held. */
   onKey: (name: string, ctrl: boolean, alt: boolean, shift: boolean) => void;
@@ -74,6 +77,8 @@ export function Keyboard(props: KeyboardProps) {
     releaseTimer = 4;
     const act = hit.def.act;
     if ("settings" in act) { props.onSettings();
+    } else if ("voice" in act) {
+      props.onVoice();
     } else if ("ch" in act) {
       if (act.ctrl || props.ctrlArmed() || altArmed()) {
         props.onKey(act.ch, !!act.ctrl || props.ctrlArmed(), altArmed(), false);
@@ -135,6 +140,7 @@ export function Keyboard(props: KeyboardProps) {
             pressed={pressed()}
             ctrlArmed={props.ctrlArmed()}
             altArmed={altArmed()}
+            voiceState={props.voiceState}
           />
         )}
       </For>
@@ -190,6 +196,7 @@ function KeyboardRow(props: {
   pressed: string | null;
   ctrlArmed: boolean;
   altArmed: boolean;
+  voiceState: KeyboardProps["voiceState"];
 }) {
   const placed = createMemo(() => placeKeys(props.keys));
   // Rows taller than the touchpad-on 26 px have room for the larger label.
@@ -199,7 +206,10 @@ function KeyboardRow(props: {
       {({ def, index, left }) => {
         const isPressed = createMemo(() => props.pressed === `${props.row}:${index}`);
         const isArmedCtrl = () => "mod" in def.act && (def.act.mod === "ctrl" && props.ctrlArmed || def.act.mod === "alt" && props.altArmed);
-        const down = createMemo(() => isPressed() || isArmedCtrl());
+        const isVoice = "voice" in def.act;
+        const voiceActive = isVoice && (props.voiceState === "starting" || props.voiceState === "recording");
+        const label = isVoice ? voiceKeyLabel(props.voiceState) : def.label;
+        const down = createMemo(() => isPressed() || isArmedCtrl() || voiceActive);
         return (
           // The socket: a dark recess the cap sits in. Unpressed, the cap
           // covers all but the bottom lip, and that sliver of shadow is what
@@ -225,15 +235,22 @@ function KeyboardRow(props: {
                 gradViaPos: down() ? 0.82 : 0.18,
               }}
             >
-              <Text class={labelClass(down(), big())}>
-                {def.label}
-              </Text>
+              <Text class={labelClass(down(), big())}>{label}</Text>
             </View>
           </View>
         );
       }}
     </For>
   );
+}
+
+function voiceKeyLabel(state: KeyboardProps["voiceState"]): string {
+  if (state === "ready" || state === "starting" || state === "recording") return "voice";
+  if (state === "finishing" || state === "transcribing") return "wait";
+  if (state === "done") return "done";
+  if (state === "error") return "retry";
+  if (state === "unavailable") return "n/a";
+  return "voice";
 }
 
 function labelClass(down: boolean, big: boolean): string {
