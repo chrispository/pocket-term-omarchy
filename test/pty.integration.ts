@@ -4,7 +4,7 @@ import { fork, spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ import { TERM_PROTO, type ClientLine, type HostLine, type Run } from "../shared/
 import type { ExchangeReply, ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY_BATCH, type HistoryManifest, type HistoryReply, type HistoryBatchReply } from "../shared/history.ts";
 import { createCursorStick } from "../app/stick.ts";
+import type { FileEntry, FilesReply } from "../shared/files.ts";
 
 test("real host PTYs: multiplex, resumable history, vim/nano cursor keys and VT modes", { timeout: 45000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "pocket-term-pty-"));
@@ -139,6 +140,22 @@ test("real host PTYs: multiplex, resumable history, vim/nano cursor keys and VT 
     assert(first.lines.some(line => line.t === "menus" && line.commands.length === 4 && line.errors.length === 0));
     await first.exchange({ t: "keys", s: `printf KEYS_<wait:50>DONE > '${directory}/keys'<CR>` });
     await delay(250); assert.equal(readFileSync(join(directory, "keys"), "utf8"), "KEYS_DONE");
+    // The file browser starts in the shell's working directory, folders
+    // first, and pages a folder too large for one reply.
+    mkdirSync(join(directory, "zfolder"));
+    for (let n = 0; n < 150; n++) writeFileSync(join(directory, "zfolder", `file-with-a-long-name-${String(n).padStart(3, "0")}.txt`), "x");
+    const here = await capability("term.files", { sid: sid1, offset: 0 }) as FilesReply;
+    assert.equal(here.path, realpathSync(directory));
+    assert.deepEqual(here.entries[0], ["zfolder", "d", 150]);
+    assert(here.entries.some(([name, kind, size]) => name === "keys" && kind === "f" && size === 9));
+    let listed: FileEntry[] = [], offset = 0;
+    for (let more = true; more;) {
+      const page = await capability("term.files", { sid: sid1, path: join(directory, "zfolder"), offset }) as FilesReply;
+      listed.push(...page.entries); offset += page.entries.length; more = page.more;
+    }
+    assert.equal(listed.length, 150);
+    assert.equal(listed[149][0], "file-with-a-long-name-149.txt");
+    assert.equal((await capability("term.files", { sid: sid1, path: join(directory, "missing"), offset: 0 }) as FilesReply).error, "ENOENT");
     await first.exchange({ t: "new" }, true);
     await first.until(() => first.sessions.length === 2 && first.active !== sid1);
     const sid2 = first.active;

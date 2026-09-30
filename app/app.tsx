@@ -17,6 +17,8 @@ import { createTermStore, type TermStore } from "./store.ts";
 import { createCursorStick } from "./stick.ts";
 import { TermSettings } from "./settings.tsx";
 import { MenuPanel } from "./menus.tsx";
+import { FileBrowser, shellQuote } from "./files.tsx";
+import { literalKeys } from "../shared/keyseq.ts";
 import { createDictation, type DictationState } from "./dictation.ts";
 
 const TAB_H = 26;
@@ -58,8 +60,9 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   const [settingsOpen, setSettingsOpen] = createSignal(props.initialSettings ?? false);
   /** The menu standing in for the keyboard, if any. */
   const [menu, setMenu] = createSignal<"ctrl" | "commands" | null>(null);
+  const [filesOpen, setFilesOpen] = createSignal(false);
   /** Something covers the keyboard and takes the buttons. */
-  const overlay = () => settingsOpen() || menu() !== null;
+  const overlay = () => settingsOpen() || menu() !== null || filesOpen();
   const [scrollSpeed, setScrollSpeed] = createSignal(1);
   const [preview, setPreview] = createSignal(true);
   const [layoutName, setLayoutName] = createSignal(KEYBOARD.defaults.layout);
@@ -140,7 +143,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
       if (pressed & mask) send(key, ctrlActive());
     }
     if (pressed & BTN.START) send("c", true);
-    if (pressed & BTN.SELECT) store.newSession();
+    if (pressed & BTN.SELECT && store.activeSid() >= 0) { store.history?.stop(); setFilesOpen(true); }
 
     const cursorKey = cursorStick.step(rightAnalogX(), rightAnalogY());
     if (cursorKey) send(cursorKey, ctrlActive());
@@ -236,7 +239,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
         metrics={{ cols: COLS, rows: ROWS, cellW: CELL_W, cellH: CELL_H, track: TRACK, statusH: STATUS_H }}
         badge={`${COLS}×${ROWS}`}
         hint="Connect the paired companion to continue"
-        emptyHint="SELECT opens one · or tap + on the touch screen"
+        emptyHint="Tap + on the touch screen to open one"
         title="POCKET TERM"
       />
 
@@ -347,6 +350,14 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
                 onClose={() => setMenu(null)}
               />
             )}
+          </Show>
+
+          <Show when={filesOpen()}>
+            <FileBrowser
+              sid={store.activeSid()}
+              onCd={(path) => { store.sendKeys(`${literalKeys(`cd -- ${shellQuote(path)}`)}<CR>`); setFilesOpen(false); }}
+              onClose={() => setFilesOpen(false)}
+            />
           </Show>
 
           <Show when={settingsOpen()}>

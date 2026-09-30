@@ -32,6 +32,8 @@ import { chunkRows, resolveCell, rowKey, rowRuns, type Cell } from "./grid.ts";
 import { DynamicAtlasSet, isBakedCodepoint } from "./glyphs.ts";
 import { encodeKey } from "./keys.ts";
 import { defaultMenusPath, KeyPlayer, watchMenus } from "./menus.ts";
+import { listFiles, processCwd } from "./files.ts";
+import type { FilesRequest } from "../shared/files.ts";
 import { KEYSEQ_LIMITS } from "../shared/keyseq.ts";
 import {
   FrameParser,
@@ -1104,7 +1106,7 @@ function handleVoiceRequest(path: string, body: string): string {
 }
 
 const broker = createHttpServer(async (request, response) => {
-  if (request.method !== "POST" || !["/exchange", "/history", "/history-batch", "/input", "/voice/begin", "/voice/chunk", "/voice/end", "/voice/status", "/voice/cancel"].includes(request.url ?? "") || request.headers.authorization !== `Bearer ${token}`) {
+  if (request.method !== "POST" || !["/exchange", "/history", "/history-batch", "/input", "/voice/begin", "/voice/chunk", "/voice/end", "/voice/status", "/voice/cancel", "/files"].includes(request.url ?? "") || request.headers.authorization !== `Bearer ${token}`) {
     response.writeHead(403).end(); return;
   }
   try {
@@ -1116,6 +1118,15 @@ const broker = createHttpServer(async (request, response) => {
     if (request.url?.startsWith("/voice/")) {
       response.setHeader("content-type", "application/json");
       response.end(handleVoiceRequest(request.url, body));
+      return;
+    }
+    if (request.url === "/files") {
+      const input = JSON.parse(body) as FilesRequest;
+      if (!Number.isSafeInteger(input.sid)) throw new Error("Invalid session");
+      const session = hub.sessions.get(input.sid);
+      const cwd = input.path === undefined && session ? processCwd(session.pty.pid) : undefined;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify(listFiles(input, cwd)));
       return;
     }
     if (request.url === "/history-batch") {

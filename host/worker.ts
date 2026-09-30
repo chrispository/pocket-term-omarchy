@@ -21,5 +21,6 @@ self.onmessage = async event => {
     "term.voice.end": payload => forward("/voice/end", payload),
     "term.voice.status": payload => forward("/voice/status", payload),
     "term.voice.cancel": payload => forward("/voice/cancel", payload),
+    "term.files": payload => forward("/files", payload),
   }, event.data));
 };

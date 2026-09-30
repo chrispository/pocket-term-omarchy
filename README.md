@@ -138,19 +138,57 @@ in memory and does not restore shells after an Omarchy or daemon restart.
 | Circle Pad / touchpad drag and flick | Scroll local history with inertia |
 | Right nub, where supported | Repeating editor cursor arrows |
 | START | Ctrl-C |
-| SELECT / touch `+` | Open a session |
+| Touch `+` | Open a session |
+| SELECT | Browse the host's files from the shell's folder; SELECT again runs `cd` there |
 | L / R | Previous / next session |
 | Touch a tab | Attach to that session |
 | Hold a tab, slide down, release | Close the selected session |
 | Touch page arrows | Page through session tabs |
 | Hold ZL, where supported | Ctrl modifier |
+| Tap / hold keyboard `ctrl` | Ctrl for the next key / the ctrl menu |
+| Keyboard `>_` key | The command menu |
 | `?123` → `#{~` → `F1+` | Symbols, function keys and navigation keys |
-| Keyboard `settings` key | Choose font, typing preview and scroll speed |
+| Keyboard `settings` key | Choose font, typing preview, scroll speed and theme |
 | L + R + START | Return to Homebrew Launcher |
 
 The touch keyboard provides Shift, Ctrl and Alt. The hardware arrows replace
 touch arrow keys. Desktop mirrors accept keyboard input and paste into their
 assigned session; session creation, closing and switching belong to the 3DS.
+
+### Menus
+
+Holding `ctrl` opens a list of control keys, and `>_` opens groups of
+commands. Both come from `~/.config/pocket-term/menus.json` on the computer
+(`--menus <path>` names another file); without it the daemon uses
+[menus.example.json](menus.example.json), which is the place to start. The
+daemon rereads the file when it is saved, so a change reaches the 3DS without
+a rebuild.
+
+```json
+{
+  "ctrl": [
+    { "label": "interrupt twice", "keys": "<C-c><C-c>" }
+  ],
+  "commands": [
+    { "label": "git", "items": [
+      { "label": "status", "run": "git status" },
+      { "label": "commit...", "keys": "git commit -m \"\"<Left>" },
+      { "label": "new branch", "type": "git switch -c " }
+    ]}
+  ]
+}
+```
+
+Each entry has a `label` and one of: `run` types the text and presses Enter;
+`type` types it and stops; `keys` is a key sequence; `items` is a submenu, up
+to four deep. `hint` replaces the grey text on the right. In a key sequence,
+`<C-x>`, `<M-x>` and `<S-x>` add Ctrl, Alt and Shift, and they combine
+(`<C-M-a>`). The named keys are `<CR>`, `<Esc>`, `<Tab>`, `<BS>`, `<Space>`,
+`<Up>` `<Down>` `<Left>` `<Right>`, `<Home>` `<End>`, `<PageUp>`
+`<PageDown>`, `<Del>`, `<Insert>` and `<F1>` to `<F12>`; `<lt>` types `<`.
+`<wait:75>` pauses 75 ms. The daemon plays a sequence beside the shell, so the
+pauses keep their length over Wi-Fi. Labels are drawn in plain ASCII; the
+daemon log lists any entry it could not use.
 
 <img src="docs/screenshots/settings.png" width="320" height="240" alt="Current lower-screen settings: Spleentt, Spleen and Fusion Pixel fonts, Auto typing preview and Fast scroll speed" />
 
