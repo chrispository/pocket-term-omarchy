@@ -5,6 +5,7 @@
 import { createServer, type Socket } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { Mailbox } from "./exchange.ts";
 import { LIMITS, type ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY, type HistoryRequest, type HistoryBatchRequest } from "../shared/history.ts";
@@ -819,9 +820,20 @@ interface VoiceCapture {
   sid: number;
   state: VoiceState;
   createdAt: number;
+  profileStartedAt: number;
+  firstChunkAt?: number;
+  lastChunkAt?: number;
+  endAt?: number;
+  resampleDoneAt?: number;
+  wavReadyAt?: number;
+  voxtypeStartedAt?: number;
+  resultAt?: number;
+  resultObservedAt?: number;
+  profileLogged: boolean;
   touched: number;
   parts: Buffer[];
   bytes: number;
+  chunks: number;
   nextSeq: number;
   lastChunk?: string;
   child?: ChildProcess;
@@ -873,6 +885,34 @@ function voxtypeTranscript(output: string): string {
     .replace(/[\r\n]+$/, "");
 }
 
+function logVoiceProfile(capture: VoiceCapture) {
+  if (capture.profileLogged || capture.resultAt === undefined || capture.resultObservedAt === undefined) return;
+  capture.profileLogged = true;
+  const ms = (start: number | undefined, end: number | undefined) =>
+    start === undefined || end === undefined ? null : Math.round((end - start) * 10) / 10;
+  console.log(`[voice-profile] ${JSON.stringify({
+    id: capture.id.slice(0, 8),
+    result: capture.state,
+    pcmBytes: capture.bytes,
+    chunks: capture.chunks,
+    audioMs: Math.round(capture.bytes / 2 / VOICE_SAMPLE_RATE * 1000),
+    beginToEndMs: ms(capture.profileStartedAt, capture.endAt),
+    firstToLastChunkMs: ms(capture.firstChunkAt, capture.lastChunkAt),
+    lastChunkToEndMs: ms(capture.lastChunkAt, capture.endAt),
+    wavPrepMs: ms(capture.endAt, capture.resampleDoneAt),
+    wavWriteMs: ms(capture.resampleDoneAt, capture.wavReadyAt),
+    voxtypeMs: ms(capture.voxtypeStartedAt, capture.resultAt),
+    endToResultMs: ms(capture.endAt, capture.resultAt),
+    resultToPollMs: ms(capture.resultAt, capture.resultObservedAt),
+  })}`);
+}
+
+function completeVoiceCapture(capture: VoiceCapture) {
+  capture.resultAt ??= performance.now();
+  capture.touched = Date.now();
+  cleanVoiceFiles(capture);
+}
+
 function cleanVoiceFiles(capture: VoiceCapture) {
   if (!capture.directory) return;
   try { rmSync(capture.directory, { recursive: true, force: true }); } catch { /* best effort */ }
@@ -884,8 +924,12 @@ function transcribeVoice(capture: VoiceCapture) {
     const directory = mkdtempSync(join(tmpdir(), "pocket-term-voice-"));
     capture.directory = directory;
     const wavPath = join(directory, "capture.wav");
-    writeFileSync(wavPath, resampleVoiceWav(capture.parts, capture.bytes), { mode: 0o600 });
+    const wav = resampleVoiceWav(capture.parts, capture.bytes);
+    capture.resampleDoneAt = performance.now();
+    writeFileSync(wavPath, wav, { mode: 0o600 });
+    capture.wavReadyAt = performance.now();
     capture.parts = [];
+    capture.voxtypeStartedAt = performance.now();
     const child = spawn("voxtype", ["transcribe", wavPath], {
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -897,9 +941,8 @@ function transcribeVoice(capture: VoiceCapture) {
       child.kill("SIGTERM");
       capture.state = "error";
       capture.error = "Voxtype transcription timed out";
-      capture.touched = Date.now();
       settled = true;
-      cleanVoiceFiles(capture);
+      completeVoiceCapture(capture);
     }, 5 * 60 * 1000);
     child.stdout?.on("data", chunk => {
       outputBytes += chunk.length;
@@ -916,20 +959,20 @@ function transcribeVoice(capture: VoiceCapture) {
       settled = true; clearTimeout(timeout);
       capture.child = undefined;
       capture.state = "error"; capture.error = error.message.slice(0, 160);
-      capture.touched = Date.now(); cleanVoiceFiles(capture);
+      completeVoiceCapture(capture);
     });
     child.once("close", code => {
       if (settled) return;
       settled = true; clearTimeout(timeout); capture.child = undefined;
-      if (capture.state === "cancelled") { cleanVoiceFiles(capture); return; }
+      if (capture.state === "cancelled") { completeVoiceCapture(capture); return; }
       if (outputTooLarge) {
         capture.state = "error"; capture.error = "Voxtype output exceeded limit";
-        capture.touched = Date.now(); cleanVoiceFiles(capture); return;
+        completeVoiceCapture(capture); return;
       }
       if (code !== 0) {
         capture.state = "error";
         capture.error = (diagnostic.trim() || `Voxtype exited with code ${code}`).slice(-160);
-        capture.touched = Date.now(); cleanVoiceFiles(capture); return;
+        completeVoiceCapture(capture); return;
       }
       try {
         const transcript = voxtypeTranscript(Buffer.concat(outputParts).toString("utf8"));
@@ -946,12 +989,12 @@ function transcribeVoice(capture: VoiceCapture) {
         capture.state = "error";
         capture.error = String(error).slice(0, 160);
       }
-      capture.touched = Date.now(); cleanVoiceFiles(capture);
+      completeVoiceCapture(capture);
     });
   } catch (error) {
     capture.state = "error";
     capture.error = String(error).slice(0, 160);
-    capture.touched = Date.now(); cleanVoiceFiles(capture);
+    completeVoiceCapture(capture);
   }
 }
 
@@ -964,7 +1007,11 @@ function handleVoiceRequest(path: string, body: string): string {
     const active = [...voiceCaptures.values()].filter(c => c.state === "recording" || c.state === "transcribing");
     if (active.length >= 2) throw new Error("Dictation limit reached");
     const id = randomUUID(), now = Date.now();
-    voiceCaptures.set(id, { id, sid: sid as number, state: "recording", createdAt: now, touched: now, parts: [], bytes: 0, nextSeq: 0 });
+    voiceCaptures.set(id, {
+      id, sid: sid as number, state: "recording", createdAt: now,
+      profileStartedAt: performance.now(), profileLogged: false,
+      touched: now, parts: [], bytes: 0, chunks: 0, nextSeq: 0,
+    });
     return JSON.stringify({ id, state: "recording" });
   }
 
@@ -978,20 +1025,31 @@ function handleVoiceRequest(path: string, body: string): string {
     const bytes = Buffer.from(input.data, "base64");
     if (bytes.length === 0 || bytes.length > VOICE_CHUNK_BYTES || bytes.length % 2 || bytes.toString("base64") !== input.data) throw new Error("Invalid PCM data");
     if (capture.bytes + bytes.length > VOICE_MAX_BYTES) throw new Error("Dictation reached the 60 second limit");
-    capture.parts.push(bytes); capture.bytes += bytes.length; capture.lastChunk = input.data; capture.nextSeq += 1;
+    const receivedAt = performance.now();
+    capture.firstChunkAt ??= receivedAt;
+    capture.lastChunkAt = receivedAt;
+    capture.parts.push(bytes); capture.bytes += bytes.length; capture.chunks += 1; capture.lastChunk = input.data; capture.nextSeq += 1;
     return JSON.stringify({ seq });
   }
   if (path === "/voice/end") {
     if (capture.state === "recording") {
       capture.state = "transcribing";
+      capture.endAt = performance.now();
       transcribeVoice(capture);
     }
     return JSON.stringify({ state: capture.state });
   }
-  if (path === "/voice/status") return JSON.stringify({ state: capture.state, error: capture.error });
+  if (path === "/voice/status") {
+    if (capture.state !== "recording" && capture.state !== "transcribing") {
+      capture.resultObservedAt ??= performance.now();
+      logVoiceProfile(capture);
+    }
+    return JSON.stringify({ state: capture.state, error: capture.error });
+  }
   if (path === "/voice/cancel") {
     if (capture.state === "recording" || capture.state === "transcribing") {
       capture.state = "cancelled";
+      capture.resultAt = performance.now();
       capture.child?.kill("SIGTERM");
       capture.parts = [];
       cleanVoiceFiles(capture);
