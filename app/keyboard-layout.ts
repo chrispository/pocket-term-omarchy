@@ -10,13 +10,13 @@ export const KEYBOARD: KeyboardConfig = {
   layouts: {
     classic: {
       actionRow: [
-        { label: "esc", w: 1, act: { key: "Escape" }, dark: true },
-        { label: "tab", w: 1, act: { key: "Tab" }, dark: true },
-        { label: "ctl", w: 1, act: { mod: "ctrl" }, dark: true },
-        { label: "alt", w: 1, act: { mod: "alt" }, dark: true },
-        { label: "voice", w: 2, act: { voice: true }, dark: true },
-        { label: "settings", w: 2, act: { settings: true }, dark: true },
-        { label: ">_", w: 2, act: { commands: true }, dark: true },
+        { label: "esc", w: 1.4375, act: { key: "Escape" }, dark: true },
+        { label: "tab", w: 1.4375, act: { key: "Tab" }, dark: true },
+        { label: "ctrl", w: 1.4375, act: { mod: "ctrl" }, dark: true },
+        { label: "alt", w: 1.40625, act: { mod: "alt" }, dark: true },
+        { label: "settings", w: 1.4375, act: { settings: true }, dark: true },
+        { label: "voice", w: 1.40625, act: { voice: true }, dark: true },
+        { label: ">_", w: 1.4375, act: { commands: true }, dark: true },
       ],
       layers: {
         lower: [
@@ -232,14 +232,13 @@ export const KEYBOARD: KeyboardConfig = {
     },
     split: {
       actionRow: [
-        { label: "esc", w: 0.875, act: { key: "Escape" }, dark: true },
-        { label: "tab", w: 0.875, act: { key: "Tab" }, dark: true },
-        { label: "ctl", w: 0.875, act: { mod: "ctrl" }, dark: true },
-        { label: "alt", w: 0.875, act: { mod: "alt" }, dark: true },
-        { label: "", w: 0.75, act: { gap: true } },
-        { label: "voice", w: 2, act: { voice: true }, dark: true },
-        { label: "settings", w: 2, act: { settings: true }, dark: true },
-        { label: ">_", w: 1.75, act: { commands: true }, dark: true },
+        { label: "esc", w: 1.4375, act: { key: "Escape" }, dark: true },
+        { label: "tab", w: 1.4375, act: { key: "Tab" }, dark: true },
+        { label: "ctrl", w: 1.4375, act: { mod: "ctrl" }, dark: true },
+        { label: "alt", w: 1.40625, act: { mod: "alt" }, dark: true },
+        { label: "settings", w: 1.4375, act: { settings: true }, dark: true },
+        { label: "voice", w: 1.40625, act: { voice: true }, dark: true },
+        { label: ">_", w: 1.4375, act: { commands: true }, dark: true },
       ],
       layers: {
         lower: [

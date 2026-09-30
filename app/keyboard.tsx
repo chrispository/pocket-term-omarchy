@@ -179,6 +179,10 @@ export function Keyboard(props: KeyboardProps) {
   );
 }
 
+/** Longer labels ("settings") take the small size: the action row splits the
+ *  panel seven ways, 45 or 46 px a key. */
+const LONG_LABEL = 5;
+
 /** How far the cap travels into its socket, and the lip it leaves showing. */
 const KEY_LIP = 2;
 
@@ -230,7 +234,8 @@ function KeyboardRow(props: {
   voiceState: KeyboardProps["voiceState"];
 }) {
   const placed = createMemo(() => placeKeys(props.keys));
-  // Rows taller than the touchpad-on 26 px have room for the larger label.
+  // Rows taller than the touchpad-on 26 px have room for the larger label,
+  // unless the label is too long for a seventh of the panel.
   const big = () => props.keyH >= 34;
   return (
     <For each={placed()}>
@@ -266,7 +271,7 @@ function KeyboardRow(props: {
                 gradViaPos: down() ? 0.82 : 0.18,
               }}
             >
-              <Text class={labelClass(down(), big())}>{label()}</Text>
+              <Text class={labelClass(down(), big() && label().length <= LONG_LABEL)}>{label()}</Text>
             </View>
           </View>
         );
@@ -307,7 +312,7 @@ function HairlineRow(props: {
             class={hairCellClass(isPressed(), armed())}
             style={{ insetL: left - 1, width: def.w * UNIT + 1, insetT: props.row * props.keyH - 1, height: props.keyH + 1 }}
           >
-            <Text class={hairLabelClass(def.dark === true, "commands" in def.act, armed(), big())}>{label()}</Text>
+            <Text class={hairLabelClass(def.dark === true, "commands" in def.act, armed(), big() && label().length <= LONG_LABEL)}>{label()}</Text>
           </View>
         );
       }}
