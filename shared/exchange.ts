@@ -2,7 +2,7 @@ import type { ClientLine } from "./protocol.ts";
 import { OFFLOAD } from "../vendor/pocketjs/contracts/spec/offload.ts";
 
 /** Limits cover the guest, provider and durable terminal worker. */
-export const LIMITS = { commands: 64, inputBatch: 8, sessions: 32, replicas: 8, outputChars: 262144, lineChars: 65536, fragmentChars: 2400 } as const;
+export const LIMITS = { commands: 64, inputBatch: 8, sessions: 32, replicas: 8, outputChars: 262144, lineChars: 65536, fragmentChars: 2400, outputWindow: 3 } as const;
 export interface InputCommand { id: number; line: ClientLine }
 export interface InputRequest { replica: string; epoch?: string; commands: InputCommand[] }
 export interface InputReply { epoch: string; ack: number; error?: string }
@@ -10,6 +10,9 @@ export interface ExchangeRequest {
   replica: string;
   epoch?: string;
   received: number;
+  /** The fragment this request asks for, at most `outputWindow` past
+   *  `received`. Absent: the next one, one request at a time. */
+  want?: number;
   command?: InputCommand;
 }
 

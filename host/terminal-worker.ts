@@ -178,8 +178,10 @@ class Conn {
   lastRx = Date.now();
   sawClientHello = false;
   paste?: { sid: number; text: string; at: number };
-  /** The exchange parked until the mailbox has something to deliver. */
-  parked?: () => void;
+  /** Exchanges parked until the mailbox has their fragment, by the sequence
+   *  each wants. Each tries again when output arrives; `final` answers even
+   *  with nothing. */
+  readonly parked = new Map<number, (final: boolean) => void>();
 
   constructor(socket: Socket) {
     this.socket = socket;
@@ -1191,19 +1193,20 @@ const broker = createHttpServer(async (request, response) => {
       const created = conn;
       conn.mailbox = new Mailbox(); replicas.set(input.replica, conn); hub.conns.add(conn);
       // A grid is pushed as several lines in one pass; release after it.
-      conn.mailbox.onPush = () => { if (created.parked) setImmediate(() => created.parked?.()); };
+      conn.mailbox.onPush = () => { if (created.parked.size) setImmediate(() => wake(created)); };
     }
     const owner = conn;
     const exchange = () => owner.mailbox!.exchange(input, `${epoch}-${owner.mailbox!.identity}`, line => handleLine(owner, line));
     const reply = request.url === "/input"
       ? conn.mailbox!.input(input as unknown as import("../shared/exchange.ts").InputRequest, `${epoch}-${conn.mailbox!.identity}`, line => handleLine(owner, line))
       : exchange();
-    // An exchange that only acknowledges and finds nothing waits here for
-    // output. Asking the mailbox again is safe: the acknowledgement is
-    // idempotent, and a request carrying a command is never parked.
+    // An exchange whose fragment has not been cut yet waits here for output.
+    // Asking the mailbox again is safe: the acknowledgement is idempotent,
+    // and a request carrying a command is never parked.
+    const want = input.want ?? input.received + 1;
     if (request.url === "/exchange" && input.command === undefined && input.epoch === reply.epoch
-      && (reply as ExchangeReply).data === undefined && reply.error === undefined) {
-      park(owner, response, exchange);
+      && (reply as ExchangeReply).data === undefined && reply.error === undefined && want > conn.mailbox!.sequence) {
+      park(owner, want, response, exchange);
       scheduleFlush();
       return;
     }
@@ -1214,29 +1217,32 @@ const broker = createHttpServer(async (request, response) => {
 });
 broker.requestTimeout = 5000;
 
-function park(conn: Conn, response: import("node:http").ServerResponse, exchange: () => ExchangeReply) {
-  conn.parked?.(); // a newer request supersedes; the older one leaves now
+function park(conn: Conn, want: number, response: import("node:http").ServerResponse, exchange: () => ExchangeReply) {
+  conn.parked.get(want)?.(true); // a retry for the same fragment supersedes
   let open = true;
-  const release = () => {
+  const close = () => { open = false; clearTimeout(timer); if (conn.parked.get(want) === attempt) conn.parked.delete(want); };
+  const attempt = (final: boolean) => {
     if (!open) return;
-    open = false; clearTimeout(timer);
-    if (conn.parked === release) conn.parked = undefined;
     try {
       const reply = exchange();
+      if (!final && reply.data === undefined && want > conn.mailbox!.sequence) return;
+      close();
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify(reply));
-    } catch (error) { response.writeHead(400).end(String(error).slice(0, 160)); }
+    } catch (error) { close(); response.writeHead(400).end(String(error).slice(0, 160)); }
     if (!conn.mailbox!.busy) scheduleFlush();
   };
-  const timer = setTimeout(release, EXCHANGE_HOLD_MS);
-  // The worker gave up or its provider reconnected: nothing was taken from
-  // the mailbox for this request, so there is nothing to put back.
-  response.on("close", () => {
-    if (!open) return;
-    open = false; clearTimeout(timer);
-    if (conn.parked === release) conn.parked = undefined;
-  });
-  conn.parked = release;
+  const timer = setTimeout(() => attempt(true), EXCHANGE_HOLD_MS);
+  // The worker gave up or its provider reconnected. A fragment cut for this
+  // request stays held until acknowledged, so a retry gets the same bytes.
+  response.on("close", () => { if (open) close(); });
+  conn.parked.set(want, attempt);
+}
+
+/** Output arrived: parked exchanges try again in sequence order, since the
+ *  mailbox cuts fragments in that order. */
+function wake(conn: Conn) {
+  for (const want of [...conn.parked.keys()].sort((a, b) => a - b)) conn.parked.get(want)?.(false);
 }
 broker.listen(0, "127.0.0.1", () => {
   const endpoint = `http://127.0.0.1:${(broker.address() as { port: number }).port}/exchange`;

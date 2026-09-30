@@ -29,6 +29,20 @@ test("a parked exchange asked again picks up output pushed while it waited", () 
   expect(later.data).toContain("hello");
 });
 
+test("a window of exchanges takes successive fragments and a retry gets the same bytes", () => {
+  const mailbox = new Mailbox();
+  mailbox.push({ t: "hello", proto: TERM_PROTO, name: "x".repeat(LIMITS.fragmentChars * 2) });
+  const ask = (received: number, want: number) => mailbox.exchange({ replica: "test-replica", epoch: "mac", received, want }, "mac", () => {});
+  // Asked out of order, the third is cut along with the ones before it.
+  const third = ask(0, 3), first = ask(0, 1), second = ask(0, 2);
+  expect([first.sequence, second.sequence, third.sequence]).toEqual([1, 2, 3]);
+  expect(first.more).toBe(true); expect(third.more).toBe(false);
+  expect(JSON.parse(first.data! + second.data! + third.data!).name).toHaveLength(LIMITS.fragmentChars * 2);
+  expect(ask(1, 2)).toEqual(second);
+  expect(ask(3, 4).data).toBeUndefined(); expect(mailbox.busy).toBe(false);
+  expect(() => ask(3, 3 + LIMITS.outputWindow + 1)).toThrow("window");
+});
+
 test("nested wire records obey both UTF-8 and payload budgets", () => {
   for (const text of ["\\\"\n".repeat(2000), "你好😀".repeat(2000), "A".repeat(6000)]) {
     const mailbox = new Mailbox();
