@@ -12,10 +12,11 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
-import { onFrame } from "@pocketjs/framework/lifecycle";
+import { analogX, analogY, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
 import { offload } from "@pocketjs/framework/offload";
 import { isFolder, type FileEntry, type FilesReply, type FilesRequest } from "../shared/files.ts";
+import { createCursorStick } from "./stick.ts";
 import { FOOT_H, HEAD_H, LIST_TOP, PANEL_TOP, ROW_H, SLOT_SM, SLOT_XS, VISIBLE_ROWS, fitEnd, textWidth } from "./panel.ts";
 
 const CACHE_FOLDERS = 16;
@@ -151,6 +152,7 @@ export function FileBrowser(props: { sid: number; onCd(path: string): void; onCl
 
   let prev = -1;
   const held = new Map<number, number>();
+  const stick = createCursorStick();
   onFrame((buttons) => {
     if (prev < 0) { prev = buttons; return; }
     const pressed = buttons & ~prev;
@@ -166,6 +168,13 @@ export function FileBrowser(props: { sid: number; onCd(path: string): void; onCl
         if (count === 1 || (count > DPAD_DELAY && (count - DPAD_DELAY) % DPAD_REPEAT === 0)) select(sel() + step);
       } else held.set(mask, 0);
     }
+    // The Circle Pad moves like the d-pad: up and down by one, left and
+    // right by a page.
+    const direction = stick.step(analogX(), analogY());
+    if (direction === "Up") select(sel() - 1);
+    else if (direction === "Down") select(sel() + 1);
+    else if (direction === "Left") select(sel() - VISIBLE_ROWS);
+    else if (direction === "Right") select(sel() + VISIBLE_ROWS);
   });
 
   /** The path as breadcrumbs, the home folder as ~, with each crumb's x

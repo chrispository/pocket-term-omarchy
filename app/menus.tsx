@@ -3,15 +3,16 @@
 // Both are lists from the companion's config file (shared/config.ts). A leaf
 // sends its key sequence and closes the menu; a branch opens its submenu.
 // The command menu's top level lays out as tiles when it has four or fewer
-// groups. Touch, the d-pad and A/B all work: tap or A runs the selection, B
-// goes back a level and closes at the top.
+// groups. Touch, the d-pad, the Circle Pad and A/B all work: tap or A runs
+// the selection, B goes back a level and closes at the top.
 
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
-import { onFrame } from "@pocketjs/framework/lifecycle";
+import { analogX, analogY, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
 import type { MenuItem } from "../shared/config.ts";
+import { createCursorStick } from "./stick.ts";
 import { FOOT_H, HEAD_H, LIST_TOP, PANEL_TOP, ROW_H, SLOT_MONO_XS, SLOT_SM, SLOT_XS, VISIBLE_ROWS, fitCrumbs, fitEnd, textWidth } from "./panel.ts";
 
 const TILE_MAX = 4;
@@ -78,6 +79,7 @@ export function MenuPanel(props: MenuPanelProps) {
 
   let prev = -1;
   const held = new Map<number, number>();
+  const stick = createCursorStick();
   onFrame((buttons) => {
     // The first frame only learns what is already held, so the press that
     // opened the menu is not read as a press inside it.
@@ -96,6 +98,13 @@ export function MenuPanel(props: MenuPanelProps) {
         if (count === 1 || (count > DPAD_DELAY && (count - DPAD_DELAY) % DPAD_REPEAT === 0)) select(sel() + step);
       } else held.set(mask, 0);
     }
+    // The Circle Pad steps like the d-pad, with the same repeat the C-stick
+    // gives the terminal's arrows.
+    const direction = stick.step(analogX(), analogY());
+    if (direction === "Up") select(sel() - (tiled() ? 2 : 1));
+    else if (direction === "Down") select(sel() + (tiled() ? 2 : 1));
+    else if (direction === "Left" && tiled()) select(sel() - 1);
+    else if (direction === "Right" && tiled()) select(sel() + 1);
   });
 
   let panel: NodeMirror | undefined;
