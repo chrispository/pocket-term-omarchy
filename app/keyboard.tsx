@@ -207,9 +207,9 @@ function KeyboardRow(props: {
         const isPressed = createMemo(() => props.pressed === `${props.row}:${index}`);
         const isArmedCtrl = () => "mod" in def.act && (def.act.mod === "ctrl" && props.ctrlArmed || def.act.mod === "alt" && props.altArmed);
         const isVoice = "voice" in def.act;
-        const voiceActive = isVoice && (props.voiceState === "starting" || props.voiceState === "recording");
-        const label = isVoice ? voiceKeyLabel(props.voiceState) : def.label;
-        const down = createMemo(() => isPressed() || isArmedCtrl() || voiceActive);
+        const voiceActive = () => isVoice && (props.voiceState === "starting" || props.voiceState === "recording");
+        const label = () => isVoice ? voiceKeyLabel(props.voiceState) : def.label;
+        const down = createMemo(() => isPressed() || isArmedCtrl() || voiceActive());
         return (
           // The socket: a dark recess the cap sits in. Unpressed, the cap
           // covers all but the bottom lip, and that sliver of shadow is what
@@ -235,7 +235,7 @@ function KeyboardRow(props: {
                 gradViaPos: down() ? 0.82 : 0.18,
               }}
             >
-              <Text class={labelClass(down(), big())}>{label}</Text>
+              <Text class={labelClass(down(), big())}>{label()}</Text>
             </View>
           </View>
         );
