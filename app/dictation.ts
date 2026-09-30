@@ -6,12 +6,24 @@ export type DictationState =
   | "transcribing" | "done" | "error" | "link-error" | "session-error"
   | "microphone-error" | "host-error" | "transcription-error";
 
-const CHUNK_BYTES = 1200;
+// A 1,800-byte PCM chunk base64-encodes to 2,400 chars, fitting the pinned
+// PocketJS offload payload budget with this request's id and sequence fields.
+const CHUNK_BYTES = 1800;
+// Keep two of PocketJS's eight pending tickets available for terminal input
+// and screen exchange while dictation uploads in parallel.
+const MAX_CHUNK_REQUESTS = 6;
 const MAX_CAPTURE_BYTES = 1_950_000;
 const MAX_QUEUED_BYTES = 256 * 1024;
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-interface QueuedChunk { data: string; bytes: number }
+interface QueuedChunk {
+  seq: number;
+  data: string;
+  bytes: number;
+  attempts: number;
+  retryAt: number;
+  inFlight: boolean;
+}
 
 function encodeBase64(bytes: Uint8Array): string {
   let out = "";
@@ -39,9 +51,9 @@ export function createDictation(session: () => number, onState: (state: Dictatio
   let captureId = "", targetSession = -1, sequence = 0;
   let active = false, drained = false, requestInFlight = false, beginPending = false;
   let disposed = false, cancelled = false, frameNumber = 0, retryAt = 0, retries = 0, pollAt = 0, clearAt = 0;
-  let capturedBytes = 0, queuedBytes = 0, carryLength = 0;
+  let capturedBytes = 0, queuedBytes = 0, carryLength = 0, chunkRequestsInFlight = 0, captureGeneration = 0;
   let carry = new Uint8Array(CHUNK_BYTES);
-  const chunks: QueuedChunk[] = [];
+  const chunks = new Map<number, QueuedChunk>();
 
   const setState = (next: DictationState) => {
     if (state === next) return;
@@ -49,15 +61,15 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     onState(next);
   };
 
-  const request = (method: string, payload: string, done: (result: { ok: true; value: string } | { ok: false; error: string }) => void) => {
-    if (!io || requestInFlight || !io.connected()) return false;
+  const request = (method: string, payload: string, done: (result: { ok: true; value: string } | { ok: false; error: string }) => void, parallel = false) => {
+    if (!io || (!parallel && requestInFlight) || !io.connected()) return false;
     try {
       const ticket = io.request(method, payload, result => {
-        requestInFlight = false;
+        if (!parallel) requestInFlight = false;
         if (!disposed) done(result);
       });
       if (!ticket) return false;
-      requestInFlight = true;
+      if (!parallel) requestInFlight = true;
       return true;
     } catch {
       fail();
@@ -75,13 +87,24 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     if (active) microphone?.stop();
     active = false;
     drained = true;
-    chunks.length = 0;
+    chunks.clear();
+    chunkRequestsInFlight = 0;
     carryLength = 0;
     queuedBytes = 0;
     beginPending = false;
     cancelled = true;
     cancelHostCapture();
+    captureGeneration += 1;
     setState(reason);
+  };
+
+  const enqueueChunk = (bytes: Uint8Array) => {
+    const seq = sequence++;
+    chunks.set(seq, {
+      seq, data: encodeBase64(bytes), bytes: bytes.length,
+      attempts: 0, retryAt: frameNumber, inFlight: false,
+    });
+    queuedBytes += bytes.length;
   };
 
   const enqueueBytes = (bytes: Uint8Array) => {
@@ -93,8 +116,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
       at += take;
       carryLength += take;
       if (carryLength === CHUNK_BYTES) {
-        chunks.push({ data: encodeBase64(carry), bytes: carryLength });
-        queuedBytes += carryLength;
+        enqueueChunk(carry);
         carry = new Uint8Array(CHUNK_BYTES);
         carryLength = 0;
       }
@@ -118,15 +140,18 @@ export function createDictation(session: () => number, onState: (state: Dictatio
 
     captureId = ""; targetSession = sid; sequence = 0;
     active = true; drained = false; beginPending = true;
+    captureGeneration += 1;
     cancelled = false;
-    capturedBytes = 0; queuedBytes = 0; carryLength = 0; chunks.length = 0;
+    capturedBytes = 0; queuedBytes = 0; carryLength = 0; chunks.clear(); chunkRequestsInFlight = 0;
     carry = new Uint8Array(CHUNK_BYTES); retries = 0;
     setState("starting");
   };
 
   const pumpBegin = () => {
     if (!beginPending || captureId || requestInFlight) return;
+    const generation = captureGeneration;
     const started = request("term.voice.begin", JSON.stringify({ sid: targetSession, sampleRate: MICROPHONE_SAMPLE_RATE }), result => {
+      if (generation !== captureGeneration) return;
       beginPending = false;
       if (!result.ok) { fail("host-error"); return; }
       try {
@@ -141,27 +166,44 @@ export function createDictation(session: () => number, onState: (state: Dictatio
   };
 
   const pumpChunk = () => {
-    if (!captureId || requestInFlight || chunks.length === 0 || frameNumber < retryAt) return;
-    const chunk = chunks[0];
-    const started = request("term.voice.chunk", JSON.stringify({ id: captureId, seq: sequence, data: chunk.data }), result => {
-      if (!result.ok) {
-        retries += 1;
-        if (retries >= 5) { fail("host-error"); return; }
-        retryAt = frameNumber + 2;
+    if (!captureId || requestInFlight || chunks.size === 0) return;
+    const generation = captureGeneration;
+    for (const chunk of chunks.values()) {
+      if (chunk.inFlight || frameNumber < chunk.retryAt) continue;
+      if (chunkRequestsInFlight >= MAX_CHUNK_REQUESTS) return;
+      chunk.inFlight = true;
+      chunkRequestsInFlight += 1;
+      const started = request("term.voice.chunk", JSON.stringify({ id: captureId, seq: chunk.seq, data: chunk.data }), result => {
+        if (generation !== captureGeneration) return;
+        chunk.inFlight = false;
+        chunkRequestsInFlight = Math.max(0, chunkRequestsInFlight - 1);
+        if (!result.ok) {
+          chunk.attempts += 1;
+          if (chunk.attempts >= 5) { fail("host-error"); return; }
+          chunk.retryAt = frameNumber + 2;
+          return;
+        }
+        if (chunks.get(chunk.seq) === chunk) {
+          chunks.delete(chunk.seq);
+          queuedBytes -= chunk.bytes;
+        }
+        retries = 0;
+        retryAt = frameNumber;
+      }, true);
+      if (!started) {
+        chunk.inFlight = false;
+        chunkRequestsInFlight = Math.max(0, chunkRequestsInFlight - 1);
+        chunk.retryAt = frameNumber + 2;
         return;
       }
-      chunks.shift();
-      queuedBytes -= chunk.bytes;
-      sequence += 1;
-      retries = 0;
-      retryAt = frameNumber;
-    });
-    if (!started) retryAt = frameNumber + 2;
+    }
   };
 
   const pumpEnd = () => {
-    if (state !== "finishing" || !drained || !captureId || requestInFlight || chunks.length || carryLength) return;
-    if (!request("term.voice.end", JSON.stringify({ id: captureId }), result => {
+    if (state !== "finishing" || !drained || !captureId || requestInFlight || chunks.size || chunkRequestsInFlight || carryLength) return;
+    const generation = captureGeneration;
+    if (!request("term.voice.end", JSON.stringify({ id: captureId, chunks: sequence }), result => {
+      if (generation !== captureGeneration) return;
       if (!result.ok) {
         retries += 1;
         if (retries >= 5) { fail("host-error"); return; }
@@ -176,7 +218,9 @@ export function createDictation(session: () => number, onState: (state: Dictatio
 
   const pollStatus = () => {
     if (state !== "transcribing" || requestInFlight || frameNumber < pollAt || !captureId) return;
+    const generation = captureGeneration;
     if (!request("term.voice.status", JSON.stringify({ id: captureId }), result => {
+      if (generation !== captureGeneration) return;
       pollAt = frameNumber + 30;
       if (!result.ok) return;
       try {
@@ -208,19 +252,20 @@ export function createDictation(session: () => number, onState: (state: Dictatio
       if (active && microphone) {
         try {
           const samples = microphone.read();
-          if (samples.length) enqueueBytes(samples);
+          const bytes = samples instanceof Uint8Array ? samples : new Uint8Array(samples);
+          if (bytes.length) enqueueBytes(bytes);
         } catch { fail("microphone-error"); return; }
         if (capturedBytes >= MAX_CAPTURE_BYTES || queuedBytes >= MAX_QUEUED_BYTES) finish();
       } else if (state === "finishing" && !drained && microphone) {
         try {
           const samples = microphone.read();
-          if (samples.length) enqueueBytes(samples);
+          const bytes = samples instanceof Uint8Array ? samples : new Uint8Array(samples);
+          if (bytes.length) enqueueBytes(bytes);
           else {
             drained = true;
             if (carryLength > 0) {
               const final = carry.slice(0, carryLength);
-              chunks.push({ data: encodeBase64(final), bytes: carryLength });
-              queuedBytes += carryLength;
+              enqueueChunk(final);
               carryLength = 0;
             }
           }
@@ -236,8 +281,10 @@ export function createDictation(session: () => number, onState: (state: Dictatio
       if (disposed) return;
       if (active) microphone?.stop();
       cancelHostCapture();
+      captureGeneration += 1;
       active = false; disposed = true;
-      chunks.length = 0;
+      chunks.clear();
+      chunkRequestsInFlight = 0;
       carryLength = 0;
     },
   };

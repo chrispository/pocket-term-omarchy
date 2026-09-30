@@ -832,10 +832,9 @@ interface VoiceCapture {
   profileLogged: boolean;
   touched: number;
   parts: Buffer[];
+  receivedChunks: Map<number, string>;
   bytes: number;
   chunks: number;
-  nextSeq: number;
-  lastChunk?: string;
   child?: ChildProcess;
   directory?: string;
   error?: string;
@@ -843,7 +842,8 @@ interface VoiceCapture {
 const voiceCaptures = new Map<string, VoiceCapture>();
 const VOICE_SAMPLE_RATE = 16364.479;
 const VOICE_MAX_BYTES = Math.ceil(VOICE_SAMPLE_RATE * 2 * 60);
-const VOICE_CHUNK_BYTES = 1200;
+const VOICE_CHUNK_BYTES = 1800;
+const VOICE_MAX_CHUNKS = Math.ceil(VOICE_MAX_BYTES / VOICE_CHUNK_BYTES);
 
 function voiceCapture(id: unknown): VoiceCapture {
   if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)) throw new Error("Invalid dictation id");
@@ -1010,7 +1010,7 @@ function handleVoiceRequest(path: string, body: string): string {
     voiceCaptures.set(id, {
       id, sid: sid as number, state: "recording", createdAt: now,
       profileStartedAt: performance.now(), profileLogged: false,
-      touched: now, parts: [], bytes: 0, chunks: 0, nextSeq: 0,
+      touched: now, parts: [], receivedChunks: new Map(), bytes: 0, chunks: 0,
     });
     return JSON.stringify({ id, state: "recording" });
   }
@@ -1018,21 +1018,30 @@ function handleVoiceRequest(path: string, body: string): string {
   const capture = voiceCapture(input.id);
   if (path === "/voice/chunk") {
     if (capture.state !== "recording") throw new Error("Dictation is not recording");
-    if (!Number.isSafeInteger(input.seq) || (input.seq as number) < 0 || typeof input.data !== "string" || input.data.length > 1600 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.data)) throw new Error("Invalid audio chunk");
+    if (!Number.isSafeInteger(input.seq) || (input.seq as number) < 0 || (input.seq as number) >= VOICE_MAX_CHUNKS || typeof input.data !== "string" || input.data.length > 2400 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.data)) throw new Error("Invalid audio chunk");
     const seq = input.seq as number;
-    if (seq === capture.nextSeq - 1 && input.data === capture.lastChunk) return JSON.stringify({ seq, duplicate: true });
-    if (seq !== capture.nextSeq) throw new Error("Audio chunks arrived out of order");
+    const prior = capture.receivedChunks.get(seq);
+    if (prior !== undefined) {
+      if (prior === input.data) return JSON.stringify({ seq, duplicate: true });
+      throw new Error("Conflicting audio chunk retry");
+    }
     const bytes = Buffer.from(input.data, "base64");
     if (bytes.length === 0 || bytes.length > VOICE_CHUNK_BYTES || bytes.length % 2 || bytes.toString("base64") !== input.data) throw new Error("Invalid PCM data");
     if (capture.bytes + bytes.length > VOICE_MAX_BYTES) throw new Error("Dictation reached the 60 second limit");
     const receivedAt = performance.now();
     capture.firstChunkAt ??= receivedAt;
     capture.lastChunkAt = receivedAt;
-    capture.parts.push(bytes); capture.bytes += bytes.length; capture.chunks += 1; capture.lastChunk = input.data; capture.nextSeq += 1;
+    capture.parts[seq] = bytes;
+    capture.receivedChunks.set(seq, input.data);
+    capture.bytes += bytes.length; capture.chunks += 1;
     return JSON.stringify({ seq });
   }
   if (path === "/voice/end") {
     if (capture.state === "recording") {
+      if (!Number.isSafeInteger(input.chunks) || (input.chunks as number) < 0 || (input.chunks as number) > VOICE_MAX_CHUNKS || capture.chunks !== input.chunks || capture.parts.length !== input.chunks) throw new Error("Audio chunks are incomplete");
+      for (let seq = 0; seq < (input.chunks as number); seq += 1) {
+        if (!capture.parts[seq]) throw new Error("Audio chunks are incomplete");
+      }
       capture.state = "transcribing";
       capture.endAt = performance.now();
       transcribeVoice(capture);
