@@ -3,7 +3,8 @@ import { microphoneHost, MICROPHONE_SAMPLE_RATE } from "@pocketjs/framework/micr
 
 export type DictationState =
   | "ready" | "unavailable" | "starting" | "recording" | "finishing"
-  | "transcribing" | "done" | "error";
+  | "transcribing" | "done" | "error" | "link-error" | "session-error"
+  | "microphone-error" | "host-error" | "transcription-error";
 
 const CHUNK_BYTES = 1200;
 const MAX_CAPTURE_BYTES = 1_950_000;
@@ -70,7 +71,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     }
   };
 
-  const fail = () => {
+  const fail = (reason: DictationState = "host-error") => {
     if (active) microphone?.stop();
     active = false;
     drained = true;
@@ -80,7 +81,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     beginPending = false;
     cancelled = true;
     cancelHostCapture();
-    setState("error");
+    setState(reason);
   };
 
   const enqueueBytes = (bytes: Uint8Array) => {
@@ -109,10 +110,11 @@ export function createDictation(session: () => number, onState: (state: Dictatio
   };
 
   const begin = () => {
-    if (!microphone || !io || !io.connected()) { setState("error"); return; }
+    if (!microphone || !io) { setState("unavailable"); return; }
+    if (!io.connected()) { setState("link-error"); return; }
     const sid = session();
-    if (!Number.isSafeInteger(sid) || sid < 1) { setState("error"); return; }
-    if (!microphone.start()) { setState("error"); return; }
+    if (!Number.isSafeInteger(sid) || sid < 1) { setState("session-error"); return; }
+    if (!microphone.start()) { setState("microphone-error"); return; }
 
     captureId = ""; targetSession = sid; sequence = 0;
     active = true; drained = false; beginPending = true;
@@ -126,14 +128,14 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     if (!beginPending || captureId || requestInFlight) return;
     const started = request("term.voice.begin", JSON.stringify({ sid: targetSession, sampleRate: MICROPHONE_SAMPLE_RATE }), result => {
       beginPending = false;
-      if (!result.ok) { fail(); return; }
+      if (!result.ok) { fail("host-error"); return; }
       try {
         const reply = JSON.parse(result.value) as { id?: unknown };
         if (typeof reply.id !== "string" || reply.id.length > 80) throw new Error("Invalid dictation session");
         captureId = reply.id;
         if (cancelled) { cancelHostCapture(); return; }
         setState(active ? "recording" : "finishing");
-      } catch { fail(); }
+      } catch { fail("host-error"); }
     });
     if (!started) retryAt = frameNumber + 2;
   };
@@ -144,7 +146,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     const started = request("term.voice.chunk", JSON.stringify({ id: captureId, seq: sequence, data: chunk.data }), result => {
       if (!result.ok) {
         retries += 1;
-        if (retries >= 5) { fail(); return; }
+        if (retries >= 5) { fail("host-error"); return; }
         retryAt = frameNumber + 2;
         return;
       }
@@ -162,7 +164,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     if (!request("term.voice.end", JSON.stringify({ id: captureId }), result => {
       if (!result.ok) {
         retries += 1;
-        if (retries >= 5) { fail(); return; }
+        if (retries >= 5) { fail("host-error"); return; }
         retryAt = frameNumber + 2;
         return;
       }
@@ -182,9 +184,9 @@ export function createDictation(session: () => number, onState: (state: Dictatio
         if (reply.state === "done" || reply.state === "empty") {
           clearAt = frameNumber + 120;
           setState("done");
-        } else if (reply.state === "error") setState("error");
-        else if (reply.state !== "transcribing") setState("error");
-      } catch { setState("error"); }
+        } else if (reply.state === "error") setState("transcription-error");
+        else if (reply.state !== "transcribing") setState("transcription-error");
+      } catch { setState("transcription-error"); }
     })) pollAt = frameNumber + 30;
   };
 
@@ -199,12 +201,12 @@ export function createDictation(session: () => number, onState: (state: Dictatio
       if (disposed) return;
       if (state === "done" && frameNumber >= clearAt) setState("ready");
 
-      if ((active || state === "finishing") && io && !io.connected()) { fail(); return; }
+      if ((active || state === "finishing") && io && !io.connected()) { fail("link-error"); return; }
       if (active && microphone) {
         try {
           const samples = microphone.read();
           if (samples.length) enqueueBytes(samples);
-        } catch { fail(); return; }
+        } catch { fail("microphone-error"); return; }
         if (capturedBytes >= MAX_CAPTURE_BYTES || queuedBytes >= MAX_QUEUED_BYTES) finish();
       } else if (state === "finishing" && !drained && microphone) {
         try {
@@ -219,7 +221,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
               carryLength = 0;
             }
           }
-        } catch { fail(); return; }
+        } catch { fail("microphone-error"); return; }
       }
 
       pumpBegin();

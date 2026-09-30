@@ -248,7 +248,11 @@ function voiceKeyLabel(state: KeyboardProps["voiceState"]): string {
   if (state === "ready" || state === "starting" || state === "recording") return "voice";
   if (state === "finishing" || state === "transcribing") return "wait";
   if (state === "done") return "done";
-  if (state === "error") return "retry";
+  if (state === "link-error") return "link?";
+  if (state === "session-error") return "term?";
+  if (state === "microphone-error") return "mic?";
+  if (state === "host-error" || state === "error") return "host?";
+  if (state === "transcription-error") return "voice?";
   if (state === "unavailable") return "n/a";
   return "voice";
 }
