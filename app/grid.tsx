@@ -10,7 +10,7 @@
 // advances the companion pinned to the grid, so mixed CJK and ASCII lines
 // stay on their columns without the app measuring anything.
 
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, Index, Show } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import * as hot from "@pocketjs/framework/hot";
@@ -71,6 +71,25 @@ const STATUS_GAP = 8;
 /** Room the right-hand side keeps for the scrollback marker, the grid size
  *  and the connection dot. */
 const STATUS_RIGHT = 74;
+/** `font-mono text-xs` — MONO_SLOT_BASE in framework/compiler/tailwind.ts. */
+const MONO_XS_SLOT = 16;
+
+/** A run's text style. Nodes are reused by position and style objects are
+ *  diffed key by key without unsetting missing keys, so both kinds of run
+ *  name every key: a cell that goes from a dynamic atlas back to the baked
+ *  font must get its slot and tracking back. */
+function runStyle(run: Run, m: GridMetrics) {
+  const dynamic = isDynamicSlot(run[4]);
+  return {
+    insetL: run[0] * m.cellW,
+    lineHeight: m.cellH,
+    // The companion baked a dynamic atlas's advances to the grid, so it
+    // needs no tracking correction.
+    fontSlot: dynamic ? run[4]! : MONO_XS_SLOT,
+    tracking: dynamic ? 0 : m.track,
+    textColor: rgbToAbgr(run[2] >= 0 ? run[2] : THEME_FG),
+  };
+}
 
 export function TermGrid(props: GridProps) {
   const m = props.metrics;
@@ -108,45 +127,29 @@ export function TermGrid(props: GridProps) {
           const runs = () => store.history ? store.history.row(row()) : slot < m.rows ? store.row(slot)() : [];
           return <View ref={node => rowNodes[slot] = node} debugName="TerminalRow" class="absolute left-0 right-0 top-0" style={{ height: m.cellH }}>
             <Show when={runs() !== undefined} fallback={<View debugName="HistorySkeleton" class="absolute left-[5] top-[3] h-[4]" style={{ width: 65 + row() % 7 * 35, bgColor: store.history?.rowError(row()) ? 0xff35416b : 0xff30251d }} />}>
-          <For each={runs()}>
-            {(run: Run) => (
+          {/* By position, not identity: every grid line parses fresh run
+              arrays, so a keyed list rebuilt each run's nodes on every
+              change. Reused nodes take only the text and props that moved. */}
+          <Index each={runs()}>
+            {(run) => (
               <>
-                <Show when={run[3] >= 0}>
+                <Show when={run()[3] >= 0}>
                   <View
                     class="absolute top-0"
                     style={{
-                      insetL: run[0] * m.cellW,
-                      width: runColumns(run) * m.cellW,
+                      insetL: run()[0] * m.cellW,
+                      width: runColumns(run()) * m.cellW,
                       height: m.cellH,
-                      bgColor: rgbToAbgr(run[3]),
+                      bgColor: rgbToAbgr(run()[3]),
                     }}
                   />
                 </Show>
-                <Text
-                  class="absolute top-0 font-mono text-xs"
-                  style={
-                    isDynamicSlot(run[4])
-                      ? {
-                          // The companion baked this atlas's advances to the
-                          // grid, so it needs no tracking correction.
-                          insetL: run[0] * m.cellW,
-                          lineHeight: m.cellH,
-                          fontSlot: run[4],
-                          textColor: rgbToAbgr(run[2] >= 0 ? run[2] : THEME_FG),
-                        }
-                      : {
-                          insetL: run[0] * m.cellW,
-                          lineHeight: m.cellH,
-                          tracking: m.track,
-                          textColor: rgbToAbgr(run[2] >= 0 ? run[2] : THEME_FG),
-                        }
-                  }
-                >
-                  {run[1]}
+                <Text class="absolute top-0 font-mono text-xs" style={runStyle(run(), m)}>
+                  {run()[1]}
                 </Text>
               </>
             )}
-          </For>
+          </Index>
             </Show>
           </View>;
         })}
