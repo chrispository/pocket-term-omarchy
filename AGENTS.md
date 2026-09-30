@@ -61,6 +61,13 @@ updates. `push` and `probe` apply only to the previous svc launcher.
 - **Provider workers do not own PTYs.** They are destroyed on disconnect;
   `host/session.ts` runs in the durable Node terminal process. Keep the shared
   protocol in `shared/`, and preserve command ids across uncertain replies.
+- **libctru's `TCP_NODELAY` is an enum, not a macro.** An `#ifdef` around
+  the `setsockopt` compiles it out and leaves Nagle on; a record written as
+  a header and a body then waits a delayed ACK, ~200 ms a request.
+- **A keyed `<For>` over parsed JSON rebuilds every node.** Each grid line
+  parses fresh arrays, so nothing matches by identity. Lists fed from the
+  wire use `<Index>`; `bun scripts/frame-bench.ts` counts the native ops a
+  frame spends and prints draw hashes to prove a change renders the same.
 - **The terminal atlas has a 5px advance.** Regenerate `app/font.generated.ts`
   with `bun scripts/font.ts`; do not obtain 80 columns through negative
   tracking of the old 12px font. Status belongs on the auxiliary screen.
