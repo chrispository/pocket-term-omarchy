@@ -9,8 +9,8 @@ import { Mailbox } from "./exchange.ts";
 import { LIMITS, type ExchangeRequest } from "../shared/exchange.ts";
 import { HISTORY, type HistoryRequest, type HistoryBatchRequest } from "../shared/history.ts";
 import { historyBatchReply, validateHistoryBatch } from "./history-batch.ts";
-import { homedir, hostname, tmpdir } from "node:os";
-import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
+import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -863,31 +863,14 @@ function resampleVoiceWav(parts: Buffer[], byteLength: number): Buffer {
   return wav;
 }
 
-function voxtypeFileConfig(outputPath: string): string {
-  const sourcePath = join(homedir(), ".config/voxtype/config.toml");
-  let text = existsSync(sourcePath) ? readFileSync(sourcePath, "utf8") : "";
-  const header = /^\s*\[output\]\s*$/m.exec(text);
-  if (!header || header.index === undefined) {
-    const nested = /^\s*\[output\.[^\]]+\]\s*$/m.exec(text);
-    const section = `[output]\nmode = "file"\nfile_path = ${JSON.stringify(outputPath)}\n\n`;
-    text = nested?.index === undefined
-      ? `${text.trimEnd()}\n\n${section}`
-      : `${text.slice(0, nested.index)}${section}${text.slice(nested.index)}`;
-    return text;
-  }
-  const start = header.index, bodyStart = start + header[0].length;
-  const next = /^\s*\[[^\]]+\]\s*$/gm;
-  next.lastIndex = bodyStart;
-  const endMatch = next.exec(text), end = endMatch?.index ?? text.length;
-  let section = text.slice(start, end);
-  const setValue = (name: string, value: string) => {
-    const key = new RegExp(`^[ \\t]*${name}[ \\t]*=.*$`, "m");
-    if (key.test(section)) section = section.replace(key, `${name} = ${value}`);
-    else section = `${section.trimEnd()}\n${name} = ${value}\n`;
-  };
-  setValue("mode", '"file"');
-  setValue("file_path", JSON.stringify(outputPath));
-  return text.slice(0, start) + section + text.slice(end);
+function voxtypeTranscript(output: string): string {
+  if (output.includes("No speech detected, skipping transcription.")) return "";
+  // Voxtype 1.0.1 prints progress lines, then the transcript after a blank
+  // line. `transcribe` writes to stdout; its configured output mode does not
+  // control this command.
+  const separator = output.lastIndexOf("\n\n");
+  return (separator >= 0 ? output.slice(separator + 2) : output)
+    .replace(/[\r\n]+$/, "");
 }
 
 function cleanVoiceFiles(capture: VoiceCapture) {
@@ -900,16 +883,15 @@ function transcribeVoice(capture: VoiceCapture) {
   try {
     const directory = mkdtempSync(join(tmpdir(), "pocket-term-voice-"));
     capture.directory = directory;
-    const wavPath = join(directory, "capture.wav"), textPath = join(directory, "transcript.txt");
-    const configPath = join(directory, "voxtype.toml");
+    const wavPath = join(directory, "capture.wav");
     writeFileSync(wavPath, resampleVoiceWav(capture.parts, capture.bytes), { mode: 0o600 });
     capture.parts = [];
-    writeFileSync(configPath, voxtypeFileConfig(textPath), { mode: 0o600 });
-    const child = spawn("voxtype", ["--config", configPath, "transcribe", wavPath], {
-      stdio: ["ignore", "ignore", "pipe"],
+    const child = spawn("voxtype", ["transcribe", wavPath], {
+      stdio: ["ignore", "pipe", "pipe"],
     });
     capture.child = child;
-    let diagnostic = "", settled = false;
+    let diagnostic = "", outputBytes = 0, outputTooLarge = false, settled = false;
+    const outputParts: Buffer[] = [];
     const timeout = setTimeout(() => {
       if (settled) return;
       child.kill("SIGTERM");
@@ -919,6 +901,15 @@ function transcribeVoice(capture: VoiceCapture) {
       settled = true;
       cleanVoiceFiles(capture);
     }, 5 * 60 * 1000);
+    child.stdout?.on("data", chunk => {
+      outputBytes += chunk.length;
+      if (outputBytes > 64 * 1024) {
+        outputTooLarge = true;
+        child.kill("SIGTERM");
+        return;
+      }
+      outputParts.push(Buffer.from(chunk));
+    });
     child.stderr?.on("data", chunk => { diagnostic = (diagnostic + String(chunk)).slice(-500); });
     child.once("error", error => {
       if (settled) return;
@@ -931,15 +922,17 @@ function transcribeVoice(capture: VoiceCapture) {
       if (settled) return;
       settled = true; clearTimeout(timeout); capture.child = undefined;
       if (capture.state === "cancelled") { cleanVoiceFiles(capture); return; }
+      if (outputTooLarge) {
+        capture.state = "error"; capture.error = "Voxtype output exceeded limit";
+        capture.touched = Date.now(); cleanVoiceFiles(capture); return;
+      }
       if (code !== 0) {
         capture.state = "error";
         capture.error = (diagnostic.trim() || `Voxtype exited with code ${code}`).slice(-160);
         capture.touched = Date.now(); cleanVoiceFiles(capture); return;
       }
       try {
-        const transcript = existsSync(textPath)
-          ? readFileSync(textPath, "utf8").replace(/[\r\n]+$/, "")
-          : "";
+        const transcript = voxtypeTranscript(Buffer.concat(outputParts).toString("utf8"));
         if (!transcript.trim()) capture.state = "empty";
         else if (transcript.length > 8192) throw new Error("Dictation transcript exceeds limit");
         else {

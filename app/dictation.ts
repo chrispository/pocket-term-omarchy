@@ -2,7 +2,7 @@ import { offload } from "@pocketjs/framework/offload";
 import { microphoneHost, MICROPHONE_SAMPLE_RATE } from "@pocketjs/framework/microphone";
 
 export type DictationState =
-  | "ready" | "unavailable" | "starting" | "recording" | "finishing"
+  | "ready" | "unavailable" | "starting" | "recording" | "finishing" | "empty"
   | "transcribing" | "done" | "error" | "link-error" | "session-error"
   | "microphone-error" | "host-error" | "transcription-error";
 
@@ -181,9 +181,12 @@ export function createDictation(session: () => number, onState: (state: Dictatio
       if (!result.ok) return;
       try {
         const reply = JSON.parse(result.value) as { state?: unknown };
-        if (reply.state === "done" || reply.state === "empty") {
+        if (reply.state === "done") {
           clearAt = frameNumber + 120;
           setState("done");
+        } else if (reply.state === "empty") {
+          clearAt = frameNumber + 120;
+          setState("empty");
         } else if (reply.state === "error") setState("transcription-error");
         else if (reply.state !== "transcribing") setState("transcription-error");
       } catch { setState("transcription-error"); }
@@ -199,7 +202,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     frame() {
       frameNumber += 1;
       if (disposed) return;
-      if (state === "done" && frameNumber >= clearAt) setState("ready");
+      if ((state === "done" || state === "empty") && frameNumber >= clearAt) setState("ready");
 
       if ((active || state === "finishing") && io && !io.connected()) { fail("link-error"); return; }
       if (active && microphone) {
