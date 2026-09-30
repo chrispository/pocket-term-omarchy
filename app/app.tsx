@@ -7,7 +7,7 @@ import { createGesture } from "@pocketjs/framework/gesture";
 import { analogY, rightAnalogX, rightAnalogY, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
 import { TermGrid } from "./grid.tsx";
-import { Keyboard } from "./keyboard.tsx";
+import { Keyboard, KEYBOARD_THEMES, type KeyboardTheme } from "./keyboard.tsx";
 import { KEYBOARD } from "./keyboard-layout.ts";
 import { keyboardGeometry } from "../shared/keyboard.ts";
 import { connectTermOffload } from "./offload.ts";
@@ -58,6 +58,8 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   const [scrollSpeed, setScrollSpeed] = createSignal(1);
   const [preview, setPreview] = createSignal(true);
   const [layoutName, setLayoutName] = createSignal(KEYBOARD.defaults.layout);
+  const [theme, setTheme] = createSignal<KeyboardTheme>("hairline");
+  const hairline = () => theme() === "hairline";
   const [touchpadOn, setTouchpadOn] = createSignal(KEYBOARD.defaults.touchpad);
   const [dictationState, setDictationState] = createSignal<DictationState>("ready");
   const dictation = createDictation(store.activeSid, setDictationState);
@@ -234,34 +236,30 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
 
       {/* Touch screen: tabs, status, keyboard. */}
       <AuxiliarySurface>
-        <View debugName="TermAux" class="relative w-full h-full bg-[#0d1117] overflow-hidden">
+        <View debugName="TermAux" class={hairline() ? "relative w-full h-full bg-[#0b0c0e] overflow-hidden" : "relative w-full h-full bg-[#0d1117] overflow-hidden"}>
           <View
             debugName="TermTabs"
             ref={(node) => (tabsNode = node)}
-            class="absolute left-0 right-0 top-0 flex-row bg-[#141a24]"
+            class={hairline() ? "absolute left-0 right-0 top-0 flex-row bg-[#0b0c0e]" : "absolute left-0 right-0 top-0 flex-row bg-[#141a24]"}
             style={{ height: TAB_H }}
           >
             <For each={visibleSessions()}>
               {(session) => (
                 <View
                   class={
-                    session.sid === store.activeSid()
+                    session.sid === store.activeSid() && !hairline()
                       ? "relative h-full items-center justify-center overflow-hidden bg-[#31394a]"
                       : "relative h-full items-center justify-center overflow-hidden"
                   }
                   style={{ width: TAB_W }}
                 >
                   <Text
-                    class={
-                      session.sid === store.activeSid()
-                        ? "text-xs text-[#dfe6f2]"
-                        : "text-xs text-[#5d708c]"
-                    }
+                    class={tabLabelClass(session.sid === store.activeSid(), hairline())}
                   >
                     {session.title}
                   </Text>
                   <Show when={session.sid === store.activeSid()}>
-                    <View class="absolute left-0 right-0 bottom-0 h-[2] bg-[#4c9bf5]" />
+                    <View class={hairline() ? "absolute left-0 right-0 bottom-0 h-[2] bg-[#f2f2f2]" : "absolute left-0 right-0 bottom-0 h-[2] bg-[#4c9bf5]"} />
                   </Show>
                   {/* The tab being held reads as the source of the bar. */}
                   <Show when={session.sid === closingSid()}>
@@ -271,7 +269,7 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
               )}
             </For>
             <View class="h-full items-center justify-center" style={{ width: TAB_NEW_W }}>
-              <Text class="text-sm text-[#5d708c]">+</Text>
+              <Text class={hairline() ? "text-sm text-[#4a4f57]" : "text-sm text-[#5d708c]"}>+</Text>
             </View>
           </View>
 
@@ -291,10 +289,12 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
 
           <Keyboard
             layout={layout()}
+            theme={theme()}
             top={kb().top}
             rows={kb().rows}
             keyH={kb().keyH}
             onSettings={() => { store.history?.stop(); setSettingsOpen(true); }}
+            onCommands={() => {}}
             onVoice={() => dictation.toggle()}
             voiceState={dictationState()}
             onChar={(ch) => {
@@ -330,16 +330,22 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
           </Show>
 
           <Show when={settingsOpen()}>
-            <TermSettings font={fontIndex()} speed={scrollSpeed()} preview={preview()} layout={layoutName()} touchpad={touchpadOn()} status={store.conn() === "live" ? store.hostName() : "Waiting for paired host"}
+            <TermSettings font={fontIndex()} speed={scrollSpeed()} preview={preview()} layout={layoutName()} touchpad={touchpadOn()} theme={theme()} status={store.conn() === "live" ? store.hostName() : "Waiting for paired host"}
               onFont={n => { setFontIndex(n); loadTerminalFont(FONT_NAMES[n]); }}
               onSpeed={setScrollSpeed} onPreview={on => { setPreview(on); store.setPreview(on); }}
               onLayout={() => setLayoutName(LAYOUT_NAMES[(LAYOUT_NAMES.indexOf(layoutName()) + 1) % LAYOUT_NAMES.length])}
-              onTouchpad={() => { store.history?.stop(); setTouchpadOn(!touchpadOn()); }} onClose={() => setSettingsOpen(false)} />
+              onTouchpad={() => { store.history?.stop(); setTouchpadOn(!touchpadOn()); }}
+              onTheme={() => setTheme(KEYBOARD_THEMES[(KEYBOARD_THEMES.indexOf(theme()) + 1) % KEYBOARD_THEMES.length])} onClose={() => setSettingsOpen(false)} />
           </Show>
         </View>
       </AuxiliarySurface>
     </>
   );
+}
+
+function tabLabelClass(active: boolean, hairline: boolean): string {
+  if (hairline) return active ? "text-xs text-[#f2f2f2]" : "text-xs text-[#4a4f57]";
+  return active ? "text-xs text-[#dfe6f2]" : "text-xs text-[#5d708c]";
 }
 
 /** Face buttons that send a key, level-tested so a held Ctrl applies. */

@@ -27,6 +27,8 @@ export type KeyAction =
   | { mod: "shift" | "ctrl" | "alt" }
   | { voice: true }
   | { settings: true }
+  /** Opens the command menu the companion reads from its config. */
+  | { commands: true }
   /** Empty space: drawn as nothing and dead to touch. Splits a row. */
   | { gap: true };
 
@@ -143,6 +145,7 @@ function actSource(act: KeyAction): string {
   if ("mod" in act) return `{ mod: ${str(act.mod)} }`;
   if ("gap" in act) return `{ gap: true }`;
   if ("voice" in act) return `{ voice: true }`;
+  if ("commands" in act) return `{ commands: true }`;
   return `{ settings: true }`;
 }
 

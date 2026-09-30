@@ -4,13 +4,13 @@
 // a fixed grid of 26 px rows on a 32 px column unit (10 units = the 320 px
 // panel), hit by one auxiliary-surface gesture on the keyboard root.
 //
-// Row 0 is the terminal action strip (Esc/Tab/Ctrl/Alt/paging/dictation/settings); the
+// Row 0 is the terminal action strip (Esc/Tab/Ctrl/Alt/dictation/settings/commands); the
 // rows below it are the character layers. The keys themselves are data in
 // ./keyboard-layout.ts, edited with `bun run keyboard`. Shift and Ctrl are
 // one-shot: they arm, the next key consumes them — the classic touch-phone
 // convention, and the only one that works with a single resistive contact.
 
-import { createEffect, createMemo, createSignal, For, on } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { onFrame } from "@pocketjs/framework/lifecycle";
@@ -46,12 +46,19 @@ export function keyAt(layout: KeyboardLayout, layerName: LayerName, x: number, y
   return null;
 }
 
+/** Graphite draws lit caps set into sockets; Hairline draws no caps, only a
+ *  1 px grid between the legends. */
+export type KeyboardTheme = "hairline" | "graphite";
+export const KEYBOARD_THEMES: readonly KeyboardTheme[] = ["hairline", "graphite"];
+
 export interface KeyboardProps {
   layout: KeyboardLayout;
+  theme: KeyboardTheme;
   top: number;
   rows: number;
   keyH: number;
   onSettings: () => void;
+  onCommands: () => void;
   onVoice: () => void;
   voiceState: DictationState;
   onChar: (ch: string) => void;
@@ -77,6 +84,8 @@ export function Keyboard(props: KeyboardProps) {
     releaseTimer = 4;
     const act = hit.def.act;
     if ("settings" in act) { props.onSettings();
+    } else if ("commands" in act) {
+      props.onCommands();
     } else if ("voice" in act) {
       props.onVoice();
     } else if ("ch" in act) {
@@ -120,9 +129,10 @@ export function Keyboard(props: KeyboardProps) {
   return (
     <View
       ref={(node) => (rootNode = node)}
-      // The plate the keys are set into, lit from the same direction they
-      // are: a hairline along the top edge and a shallow fall to the bottom.
-      class="absolute left-0 right-0 bg-gradient-to-b from-[#2a323e] via-[#161c26] to-[#10151d]"
+      // Graphite: the plate the keys are set into, lit from the same
+      // direction they are — a hairline along the top edge and a shallow fall
+      // to the bottom. Hairline: the panel's own black.
+      class={props.theme === "hairline" ? "absolute left-0 right-0 bg-[#0b0c0e]" : "absolute left-0 right-0 bg-gradient-to-b from-[#2a323e] via-[#161c26] to-[#10151d]"}
       style={{ insetT: props.top, height: props.rows * props.keyH, gradViaPos: 0.06 }}
       debugName="TermKeyboard"
     >
@@ -130,20 +140,41 @@ export function Keyboard(props: KeyboardProps) {
           absolutely in the plate, so a row is an offset rather than a node.
           Mount depth is what the JS stack is spent on (hosts/3ds/src/qjs.c
           POCKETJS_JS_STACK_SIZE), and a wrapper that only holds a y offset is
-          the kind of level worth not spending it on. */}
-      <For each={rowIndices()}>
-        {(row) => (
-          <KeyboardRow
-            row={row}
-            keys={rowsFor(props.layout, layerName())[row] ?? []}
-            keyH={props.keyH}
-            pressed={pressed()}
-            ctrlArmed={props.ctrlArmed()}
-            altArmed={altArmed()}
-            voiceState={props.voiceState}
-          />
-        )}
-      </For>
+          the kind of level worth not spending it on. The theme switch sits
+          above the rows, once, and a Hairline key is one view shallower than
+          a Graphite cap in its socket. */}
+      <Show
+        when={props.theme === "hairline"}
+        fallback={
+          <For each={rowIndices()}>
+            {(row) => (
+              <KeyboardRow
+                row={row}
+                keys={rowsFor(props.layout, layerName())[row] ?? []}
+                keyH={props.keyH}
+                pressed={pressed()}
+                ctrlArmed={props.ctrlArmed()}
+                altArmed={altArmed()}
+                voiceState={props.voiceState}
+              />
+            )}
+          </For>
+        }
+      >
+        <For each={rowIndices()}>
+          {(row) => (
+            <HairlineRow
+              row={row}
+              keys={rowsFor(props.layout, layerName())[row] ?? []}
+              keyH={props.keyH}
+              pressed={pressed()}
+              ctrlArmed={props.ctrlArmed()}
+              altArmed={altArmed()}
+              voiceState={props.voiceState}
+            />
+          )}
+        </For>
+      </Show>
     </View>
   );
 }
@@ -242,6 +273,61 @@ function KeyboardRow(props: {
       }}
     </For>
   );
+}
+
+/**
+ * A Hairline key: no cap, only its legend and the 1 px rule it shares with
+ * its neighbours. Each cell draws a full inset border one pixel larger than
+ * its slot and one pixel up and left, so adjacent borders land on the same
+ * pixel and every rule is single; the leftmost and bottom rules fall off the
+ * panel, and the top row's rule is the line under the session tabs. A press
+ * lifts the cell's background; an armed modifier inverts it.
+ */
+function HairlineRow(props: {
+  row: number;
+  keys: KeyDef[];
+  keyH: number;
+  pressed: string | null;
+  ctrlArmed: boolean;
+  altArmed: boolean;
+  voiceState: KeyboardProps["voiceState"];
+}) {
+  const placed = createMemo(() => placeKeys(props.keys));
+  const big = () => props.keyH >= 34;
+  return (
+    <For each={placed()}>
+      {({ def, index, left }) => {
+        const isPressed = createMemo(() => props.pressed === `${props.row}:${index}`);
+        const isVoice = "voice" in def.act;
+        const armed = () => "mod" in def.act && (def.act.mod === "ctrl" && props.ctrlArmed || def.act.mod === "alt" && props.altArmed) ||
+          isVoice && (props.voiceState === "starting" || props.voiceState === "recording");
+        const label = () => isVoice ? voiceKeyLabel(props.voiceState) : def.label;
+        return (
+          <View
+            class={hairCellClass(isPressed(), armed())}
+            style={{ insetL: left - 1, width: def.w * UNIT + 1, insetT: props.row * props.keyH - 1, height: props.keyH + 1 }}
+          >
+            <Text class={hairLabelClass(def.dark === true, "commands" in def.act, armed(), big())}>{label()}</Text>
+          </View>
+        );
+      }}
+    </For>
+  );
+}
+
+function hairCellClass(down: boolean, armed: boolean): string {
+  if (armed) return "absolute items-center justify-center border border-[#23262b] bg-[#e8e8e8]";
+  if (down) return "absolute items-center justify-center border border-[#23262b] bg-[#1c1f24]";
+  return "absolute items-center justify-center border border-[#23262b]";
+}
+
+/** Letters are light and large; function keys are grey; the command key's
+ *  prompt glyph is monospace. */
+function hairLabelClass(dark: boolean, mono: boolean, armed: boolean, big: boolean): string {
+  if (armed) return big ? "text-sm text-[#0b0c0e]" : "text-xs text-[#0b0c0e]";
+  if (mono) return big ? "text-sm font-mono text-[#7d848f]" : "text-xs font-mono text-[#7d848f]";
+  if (dark) return big ? "text-sm text-[#7d848f]" : "text-xs text-[#7d848f]";
+  return big ? "text-base text-[#e8e8e8]" : "text-sm text-[#e8e8e8]";
 }
 
 function voiceKeyLabel(state: KeyboardProps["voiceState"]): string {

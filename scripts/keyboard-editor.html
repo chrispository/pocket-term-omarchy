@@ -503,6 +503,7 @@ function describe(act) {
   if ("mod" in act) return act.mod === "ctrl" ? "ctrl-mod" : act.mod;
   if ("gap" in act) return "gap";
   if ("voice" in act) return "voice";
+  if ("commands" in act) return "commands";
   return "settings";
 }
 
@@ -528,6 +529,7 @@ function renderKeyPanel() {
       <option value="alt" ${kind === "alt" ? "selected" : ""}>Alt modifier (one-shot)</option>
       <option value="voice" ${kind === "voice" ? "selected" : ""}>Starts or ends dictation</option>
       <option value="settings" ${kind === "settings" ? "selected" : ""}>Opens settings</option>
+      <option value="commands" ${kind === "commands" ? "selected" : ""}>Opens the command menu</option>
       <option value="gap" ${kind === "gap" ? "selected" : ""}>Gap (empty, ignores touches)</option>
     </select></div>
     ${"ch" in def.act ? `<div class="field"><label for="fCh">${kind === "ctrl" ? "Character" : "Text"}</label><input id="fCh" value="${esc(def.act.ch)}"></div>` : ""}
@@ -572,6 +574,7 @@ function setKind(def, kind) {
   else if (kind === "ctrl-mod") def.act = { mod: "ctrl" };
   else if (kind === "alt") def.act = { mod: "alt" };
   else if (kind === "voice") def.act = { voice: true };
+  else if (kind === "commands") def.act = { commands: true };
   else if (kind === "gap") { def.act = { gap: true }; def.label = ""; delete def.dark; }
   else def.act = { settings: true };
   if (kind !== "gap" && def.label === "") def.label = "?";
@@ -733,6 +736,7 @@ function tryPress(r, i) {
   const shifted = layer === "upper";
   const tag = (t) => tryState.out.push({ tag: t });
   if ("settings" in act) tag("settings");
+  else if ("commands" in act) tag("commands");
   else if ("voice" in act) {
     tryState.voice = !tryState.voice;
     tag(tryState.voice ? "dictation started" : "dictation stopped");

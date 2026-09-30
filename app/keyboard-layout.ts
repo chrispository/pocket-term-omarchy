@@ -14,10 +14,9 @@ export const KEYBOARD: KeyboardConfig = {
         { label: "tab", w: 1, act: { key: "Tab" }, dark: true },
         { label: "ctl", w: 1, act: { mod: "ctrl" }, dark: true },
         { label: "alt", w: 1, act: { mod: "alt" }, dark: true },
-        { label: "pgu", w: 1, act: { key: "PageUp" }, dark: true },
-        { label: "pgd", w: 1, act: { key: "PageDown" }, dark: true },
         { label: "voice", w: 2, act: { voice: true }, dark: true },
         { label: "settings", w: 2, act: { settings: true }, dark: true },
+        { label: ">_", w: 2, act: { commands: true }, dark: true },
       ],
       layers: {
         lower: [
@@ -238,10 +237,9 @@ export const KEYBOARD: KeyboardConfig = {
         { label: "ctl", w: 0.875, act: { mod: "ctrl" }, dark: true },
         { label: "alt", w: 0.875, act: { mod: "alt" }, dark: true },
         { label: "", w: 0.75, act: { gap: true } },
-        { label: "pgu", w: 0.875, act: { key: "PageUp" }, dark: true },
-        { label: "pgd", w: 0.875, act: { key: "PageDown" }, dark: true },
         { label: "voice", w: 2, act: { voice: true }, dark: true },
         { label: "settings", w: 2, act: { settings: true }, dark: true },
+        { label: ">_", w: 1.75, act: { commands: true }, dark: true },
       ],
       layers: {
         lower: [
