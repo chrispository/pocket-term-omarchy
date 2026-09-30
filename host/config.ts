@@ -1,14 +1,14 @@
-/** The config file (menus and buttons): config.json at the repository root,
- *  where whoever installs Pocket Term edits it, re-read whenever it
- *  changes. */
+/** The config file (menus, buttons, combos, timing): config.jsonc at the
+ *  repository root, where whoever installs Pocket Term edits it, re-read
+ *  whenever it changes. */
 import { existsSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildConfig, CONFIG_LIMITS, EMPTY_CONFIG, type TermConfig } from "../shared/config.ts";
+import { buildConfig, CONFIG_LIMITS, EMPTY_CONFIG, parseJsonc, type TermConfig } from "../shared/config.ts";
 import { parseKeys, type KeyStep } from "../shared/keyseq.ts";
 
 export function defaultConfigPath(): string {
-  return fileURLToPath(new URL("../config.json", import.meta.url));
+  return fileURLToPath(new URL("../config.jsonc", import.meta.url));
 }
 
 /** A missing or broken file leaves the default buttons and empty menus, and
@@ -18,7 +18,7 @@ function load(file: string): TermConfig {
   try {
     const text = readFileSync(file, "utf8");
     if (text.length > CONFIG_LIMITS.chars) return { ...EMPTY_CONFIG, errors: [`${file} is larger than ${CONFIG_LIMITS.chars} characters`] };
-    return buildConfig(JSON.parse(text));
+    return buildConfig(parseJsonc(text));
   } catch (error) {
     return { ...EMPTY_CONFIG, errors: [`${file}: ${(error as Error).message}`.slice(0, 200)] };
   }

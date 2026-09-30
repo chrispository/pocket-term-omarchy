@@ -313,7 +313,10 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
         setConn("link");
         break;
       case "config":
-        setConfig({ ctrl: line.ctrl ?? [], commands: line.commands ?? [], buttons: { ...EMPTY_CONFIG.buttons, ...line.buttons }, errors: line.errors ?? [] });
+        setConfig({
+          ctrl: line.ctrl ?? [], commands: line.commands ?? [], buttons: { ...EMPTY_CONFIG.buttons, ...line.buttons },
+          combos: line.combos ?? [], timing: { ...EMPTY_CONFIG.timing, ...line.timing }, errors: line.errors ?? [],
+        });
         break;
       case "hello":
         // The local host says hello too, with a viewport and no proto. Only

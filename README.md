@@ -145,7 +145,7 @@ in memory and does not restore shells after an Omarchy or daemon restart.
 | Hold a tab, slide down, release | Close the selected session |
 | Touch page arrows | Page through session tabs |
 | Hold ZL, where supported | Ctrl modifier |
-| Buttons above, START, ZL, ZR | Set in the config file's `buttons` |
+| Any button but the D-pad, and combos | Reassigned in [config.jsonc](config.jsonc) |
 | Tap / hold keyboard `ctrl` | Ctrl for the next key / the ctrl menu |
 | Keyboard `>_` key | The command menu |
 | `?123` → `#{~` → `F1+` | Symbols, function keys and navigation keys |
@@ -156,52 +156,23 @@ The touch keyboard provides Shift, Ctrl and Alt. The hardware arrows replace
 touch arrow keys. Desktop mirrors accept keyboard input and paste into their
 assigned session; session creation, closing and switching belong to the 3DS.
 
-### Menus and buttons
+### Menus, buttons and combos
 
-Holding `ctrl` opens a list of control keys, and `>_` opens groups of
-commands. Both, and what the buttons do, are set in
-[config.json](config.json) at the top of this repository; edit it there
-(`bun run daemon --config <path>` reads another file instead). The daemon
-rereads it when it is saved, so a change reaches the 3DS without a rebuild.
+Holding `ctrl` opens a list of control keys, `>_` opens groups of commands,
+and every button except the D-pad can be reassigned. All of it lives in
+[config.jsonc](config.jsonc) at the top of this repository, which documents
+each option in its comments: key sequences (`<C-c>`, `<Esc>`, `<wait:75>`),
+button taps, holds and actions, combos such as L+R, and the timing of
+long presses. The daemon rereads the file when it is saved, so a change
+reaches the 3DS without a rebuild. `bun run daemon --config <path>` reads
+another file.
 
-```json
-{
-  "ctrl": [
-    { "label": "interrupt twice", "keys": "<C-c><C-c>" }
-  ],
-  "commands": [
-    { "label": "git", "items": [
-      { "label": "status", "run": "git status" },
-      { "label": "commit...", "keys": "git commit -m \"\"<Left>" },
-      { "label": "new branch", "type": "git switch -c " }
-    ]}
-  ]
-}
+```jsonc
+"timing": { "holdMs": 250 },          // A waits longer before it is Alt
+"combos": [
+  { "buttons": ["L", "R"], "tap": "<C-c><C-c>" }
+],
 ```
-
-Each entry has a `label` and one of: `run` types the text and presses Enter;
-`type` types it and stops; `keys` is a key sequence; `items` is a submenu, up
-to four deep. `hint` replaces the grey text on the right. In a key sequence,
-`<C-x>`, `<M-x>` and `<S-x>` add Ctrl, Alt and Shift, and they combine
-(`<C-M-a>`). The named keys are `<CR>`, `<Esc>`, `<Tab>`, `<BS>`, `<Space>`,
-`<Up>` `<Down>` `<Left>` `<Right>`, `<Home>` `<End>`, `<PageUp>`
-`<PageDown>`, `<Del>`, `<Insert>` and `<F1>` to `<F12>`; `<lt>` types `<`.
-`<wait:75>` pauses 75 ms. The daemon plays a sequence beside the shell, so the
-pauses keep their length over Wi-Fi. Labels are drawn in plain ASCII; the
-daemon log lists any entry it could not use.
-
-`buttons` sets A, B, X, Y, START, ZL and ZR. Each takes a `tap` key sequence,
-a `hold` modifier (`ctrl`, `alt` or `shift`), or both:
-
-```json
-"buttons": { "A": { "tap": "<CR>", "hold": "alt" }, "ZR": { "hold": "shift" } }
-```
-
-A button with both is tap-or-hold: pressing another key or button while it
-is down adds the modifier, and a press with nothing else in it sends the tap
-when it is released. That is how A sends Enter and also holds Alt. A button
-the file names replaces its default; `{}` turns it off. L, R, SELECT, the
-D-pad and the sticks keep their jobs.
 
 <img src="docs/screenshots/settings.png" width="320" height="240" alt="Current lower-screen settings: Spleentt, Spleen and Fusion Pixel fonts, Auto typing preview and Fast scroll speed" />
 

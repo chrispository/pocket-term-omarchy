@@ -74,6 +74,11 @@ export interface KeyboardProps {
   /** Alt and Shift held on hardware buttons (A holds Alt by default). */
   altHeld: () => boolean;
   shiftHeld: () => boolean;
+  /** Called before a key is sent, so a hardware button still inside its
+   *  hold time can send its own tap first and stop counting as held. */
+  beforeKey: () => void;
+  /** How long ctrl is held to open the ctrl menu (config timing). */
+  ctrlMenuSeconds: number;
 }
 
 export function Keyboard(props: KeyboardProps) {
@@ -98,6 +103,7 @@ export function Keyboard(props: KeyboardProps) {
     } else if ("voice" in act) {
       props.onVoice();
     } else if ("ch" in act) {
+      props.beforeKey();
       const alt = altArmed() || props.altHeld();
       if (act.ctrl || props.ctrlArmed() || alt) {
         props.onKey(act.ch, !!act.ctrl || props.ctrlArmed(), alt, false);
@@ -108,6 +114,7 @@ export function Keyboard(props: KeyboardProps) {
       }
       if (layerName() === "upper") setLayerName("lower"); // one-shot shift
     } else if ("key" in act) {
+      props.beforeKey();
       props.onKey(act.key, props.ctrlArmed(), altArmed() || props.altHeld(), layerName() === "upper" || props.shiftHeld());
       setAltArmed(false);
       if (layerName() === "upper") setLayerName("lower");
@@ -124,7 +131,9 @@ export function Keyboard(props: KeyboardProps) {
   createGesture({
     surface: "auxiliary",
     region: { node: () => rootNode },
-    longPressSeconds: CTRL_HOLD_SECONDS,
+    // A getter: the gesture reads it each frame, so a saved config applies
+    // without remounting the keyboard.
+    get longPressSeconds() { return props.ctrlMenuSeconds; },
     onDown: (contact) => {
       ctrlDown = false;
       const hit = keyAt(props.layout, layerName(), contact.x, contact.y - props.top, props.keyH);
@@ -200,10 +209,6 @@ export function Keyboard(props: KeyboardProps) {
     </View>
   );
 }
-
-/** How long ctrl is held before its menu opens: the same hold that arms
- *  closing a session tab. */
-const CTRL_HOLD_SECONDS = 0.35;
 
 /** Longer labels ("settings") take the small size: the action row splits the
  *  panel seven ways, 45 or 46 px a key. */

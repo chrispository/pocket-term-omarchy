@@ -1,0 +1,147 @@
+// Pocket Term configuration. The daemon reads this file (bun run daemon
+// --config <path> reads another) and sends it to the 3DS on connect and
+// every time it is saved: no rebuild, no ftpd copy. Comments and trailing
+// commas are allowed. Mistakes are listed in the daemon log and in the
+// footer of the menus; the rest of the file still applies.
+//
+// ---------------------------------------------------------------------------
+// Key sequences — "tap" on buttons and combos, "keys" in the menus
+// ---------------------------------------------------------------------------
+//   plain text          typed as is:            "git status"
+//   <CR> <Esc> <Tab>    named keys:             <CR> (Enter), <Esc>, <Tab>,
+//   <BS> <Space> <Del>                          <BS> (Backspace), <Space>, <Del>,
+//   <Up> <Down> ...                             <Up> <Down> <Left> <Right>,
+//                                               <Home> <End> <PageUp> <PageDown>,
+//                                               <Insert>, <F1> ... <F12>
+//   <C-x> <M-x> <S-x>   Ctrl, Alt (M or A), Shift on one key; they stack:
+//                       <C-c>, <M-b>, <S-Tab>, <C-M-a>
+//   <wait:75>           pause 75 ms (at most 5000 per wait, 10000 in total)
+//   <lt>                a literal <
+// Keys "pressed together" are modifiers on one key: a terminal receives one
+// byte stream, so Ctrl+C is the single key <C-c>.
+
+{
+  // -------------------------------------------------------------------------
+  // timing — milliseconds
+  // -------------------------------------------------------------------------
+  "timing": {
+    // A button with both "tap" and "hold" (A, by default) counts as its tap
+    // for this long: a key pressed within it sends the tap first, then the
+    // key. After it, the button is the modifier. Raise it if A turns into
+    // Alt too eagerly; a button can set its own "holdMs".
+    "holdMs": 200,
+    // How close together a combo's buttons must go down. Buttons that are
+    // part of a combo wait this long before doing their own job.
+    "comboMs": 60,
+    // How long the touch keyboard's ctrl key is held to open the ctrl menu.
+    "ctrlMenuMs": 350
+  },
+
+  // -------------------------------------------------------------------------
+  // buttons — A B X Y L R ZL ZR START SELECT
+  // -------------------------------------------------------------------------
+  // Each button takes, in any combination that makes sense:
+  //   "tap":    a key sequence, sent on press
+  //   "action": instead of a tap, one of
+  //               "prev-session" "next-session" "new-session"
+  //               "files"        (the file browser)
+  //               "commands"     (the >_ menu)
+  //               "ctrl-menu"    (the list below under "ctrl")
+  //               "settings"
+  //   "hold":   "ctrl", "alt" or "shift" while the button is down
+  //   "holdMs": this button's own timing.holdMs
+  // With a tap/action and a hold together, a press that nothing else happens
+  // during is the tap (sent on release); keys pressed after holdMs get the
+  // modifier. A button listed here replaces its default; {} turns it off.
+  // ZL and ZR exist on the New 3DS and the Circle Pad Pro. The d-pad and the
+  // sticks are not set here: arrows, scrolling and moving through menus.
+  "buttons": {
+    "A": { "tap": "<CR>", "hold": "alt" },
+    "B": { "tap": "<BS>" },
+    "X": { "tap": "<Tab>" },
+    "Y": { "tap": "<Space>" },
+    "L": { "action": "prev-session" },
+    "R": { "action": "next-session" },
+    "ZL": { "hold": "ctrl" },
+    "ZR": {},
+    "START": { "tap": "<C-c>" },
+    "SELECT": { "action": "files" }
+  },
+
+  // -------------------------------------------------------------------------
+  // combos — two or more buttons pressed together (within timing.comboMs)
+  // -------------------------------------------------------------------------
+  // A combo has "buttons" and a "tap" or an "action". When it fires, none of
+  // its buttons do their own job for that press. The 3DS keeps L+R+START
+  // (quit to the Homebrew Launcher), L+R+SELECT and L+R+X for itself.
+  "combos": [
+    // { "buttons": ["L", "R"], "tap": "<C-c><C-c>" },
+    // { "buttons": ["L", "R"], "action": "commands" },
+    // { "buttons": ["ZL", "ZR"], "action": "new-session" },
+    // { "buttons": ["L", "A"], "tap": "<Esc><wait:75>:wq<CR>" }
+  ],
+
+  // -------------------------------------------------------------------------
+  // ctrl — the list the touch keyboard's ctrl key opens when held
+  // -------------------------------------------------------------------------
+  // Each entry: "label" and one of
+  //   "run":   text, typed then Enter
+  //   "type":  text, typed without Enter (to finish by hand)
+  //   "keys":  a key sequence
+  //   "items": a submenu (up to four deep)
+  // "hint" replaces the grey text on the right. Labels are plain ASCII.
+  "ctrl": [
+    { "label": "interrupt twice", "keys": "<C-c><C-c>" },
+    { "label": "cancel", "keys": "<C-c>" },
+    { "label": "exit", "keys": "<C-d>" },
+    { "label": "suspend", "keys": "<C-z>" },
+    { "label": "clear screen", "keys": "<C-l>" },
+    { "label": "search history", "keys": "<C-r>" },
+    { "label": "line start", "keys": "<C-a>" },
+    { "label": "line end", "keys": "<C-e>" },
+    { "label": "delete word", "keys": "<C-w>" },
+    { "label": "delete line", "keys": "<C-u>" }
+  ],
+
+  // -------------------------------------------------------------------------
+  // commands — the >_ menu; four or fewer groups show as tiles
+  // -------------------------------------------------------------------------
+  "commands": [
+    { "label": "nvim", "items": [
+      { "label": "open here", "run": "nvim ." },
+      { "label": "save", "keys": "<Esc><wait:75>:w<CR>" },
+      { "label": "save & quit", "keys": "<Esc><wait:75>:wq<CR>" },
+      { "label": "quit without saving", "keys": "<Esc><wait:75>:q!<CR>" },
+      { "label": "undo", "keys": "<Esc>u" },
+      { "label": "redo", "keys": "<Esc><C-r>" }
+    ]},
+    { "label": "git", "items": [
+      { "label": "status", "run": "git status" },
+      { "label": "log", "run": "git log --oneline -20" },
+      { "label": "diff", "run": "git diff" },
+      { "label": "add all", "run": "git add -A" },
+      { "label": "commit...", "keys": "git commit -m \"\"<Left>" },
+      { "label": "push", "run": "git push" },
+      { "label": "pull", "run": "git pull --rebase" },
+      { "label": "branches", "items": [
+        { "label": "list", "run": "git branch" },
+        { "label": "main", "run": "git switch main" },
+        { "label": "new...", "type": "git switch -c " }
+      ]}
+    ]},
+    { "label": "shell", "items": [
+      { "label": "list", "run": "ls -la" },
+      { "label": "up a folder", "run": "cd .." },
+      { "label": "home", "run": "cd ~" },
+      { "label": "last command", "keys": "<Up>" },
+      { "label": "disk usage", "run": "du -sh * | sort -h" }
+    ]},
+    { "label": "claude", "items": [
+      { "label": "start", "run": "claude" },
+      { "label": "switch mode", "keys": "<S-Tab>" },
+      { "label": "interrupt", "keys": "<Esc>" },
+      { "label": "clear", "run": "/clear" },
+      { "label": "exit", "keys": "<C-c><C-c>" }
+    ]}
+  ]
+}

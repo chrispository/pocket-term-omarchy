@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { describeKeys, literalKeys, parseKeys } from "../shared/keyseq.ts";
-import { buildConfig, DEFAULT_BUTTONS } from "../shared/config.ts";
+import { buildConfig, DEFAULT_BUTTONS, DEFAULT_TIMING, parseJsonc, type ButtonName } from "../shared/config.ts";
 import { encodeKey } from "../host/keys.ts";
 import { KeyPlayer } from "../host/config.ts";
 
@@ -67,12 +67,19 @@ test("menus reduce every entry to one key sequence and report mistakes", () => {
   expect(menus.errors.join("\n")).toContain('unknown section "extra"');
 });
 
-test("the shipped config.json builds without errors", () => {
-  const menus = buildConfig(JSON.parse(readFileSync(new URL("../config.json", import.meta.url), "utf8")));
+test("the shipped config.jsonc builds without errors, and so do its commented-out combos", () => {
+  const text = readFileSync(new URL("../config.jsonc", import.meta.url), "utf8");
+  const menus = buildConfig(parseJsonc(text));
   expect(menus.errors).toEqual([]);
   expect(menus.ctrl[0]).toMatchObject({ label: "interrupt twice", keys: "<C-c><C-c>" });
   expect(menus.commands.map(g => g.label)).toEqual(["nvim", "git", "shell", "claude"]);
   expect(menus.buttons.A).toEqual({ tap: "<CR>", hold: "alt" });
+  expect(menus.buttons).toEqual(DEFAULT_BUTTONS);
+  const examples = [...text.matchAll(/^\s*\/\/ (\{ "buttons".*\}),?$/gm)].map(m => m[1]);
+  expect(examples.length).toBeGreaterThan(2);
+  const combos = buildConfig({ combos: examples.map(e => JSON.parse(e)) });
+  expect(combos.errors).toEqual([]);
+  expect(combos.combos.length).toBe(examples.length);
 });
 
 test("buttons fill in defaults, replace a named button outright and reject what they cannot do", () => {
@@ -81,7 +88,7 @@ test("buttons fill in defaults, replace a named button outright and reject what 
     Y: { tap: "<Esc>", hold: "shift" },
     ZR: { hold: "alt" },
     B: { tap: "<Nope>" },
-    L: { tap: "x" },
+    DPAD: { tap: "x" },
     X: { hold: "super" },
   } });
   expect(config.buttons.A).toEqual({ tap: "<CR>" });
@@ -92,7 +99,7 @@ test("buttons fill in defaults, replace a named button outright and reject what 
   expect(config.buttons.ZL).toEqual({ hold: "ctrl" });
   const errors = config.errors.join("\n");
   expect(errors).toContain("unknown key <Nope>");
-  expect(errors).toContain("buttons > L: only A, B, X, Y, START, ZL, ZR can be set");
+  expect(errors).toContain("buttons > DPAD: only A, B, X, Y, L, R, ZL, ZR, START, SELECT can be set");
   expect(errors).toContain("hold must be ctrl, alt or shift");
   expect(buildConfig({}).buttons).toEqual(DEFAULT_BUTTONS);
 });
@@ -106,32 +113,94 @@ test("a key player keeps sequences in order across waits", async () => {
   expect(out).toEqual(["a", "b", "c"]);
 });
 
-test("a dual-role button taps on a clean release and is only a modifier when used", async () => {
+test("a tap-and-hold button is the tap inside holdMs and the modifier after it", async () => {
   const { createButtons, tapAction } = await import("../app/buttons.ts");
-  const masks = { A: 1, B: 2, X: 4, Y: 8, START: 16, ZL: 32, ZR: 64 };
-  const buttons = createButtons(masks), bindings = DEFAULT_BUTTONS;
-  // Tap A: nothing on press, Enter on release.
-  expect(buttons.frame(1, 0, bindings)).toEqual([]);
-  expect(buttons.held().alt).toBe(true);
-  expect(buttons.frame(0, 1, bindings)).toEqual([{ tap: "<CR>", mods: { ctrl: false, alt: false, shift: false } }]);
-  // Hold A, press B: B goes out with Alt on its press; A's release is silent.
-  buttons.frame(1, 0, bindings);
-  expect(buttons.frame(3, 1, bindings)).toEqual([{ tap: "<BS>", mods: { ctrl: false, alt: true, shift: false } }]);
-  expect(buttons.frame(1, 3, bindings)).toEqual([]);
-  expect(buttons.frame(0, 1, bindings)).toEqual([]);
-  // A touch key under A spends it the same way.
-  buttons.frame(1, 0, bindings); buttons.use();
-  expect(buttons.frame(0, 1, bindings)).toEqual([]);
-  // ZL has no tap; a reset (a menu opened) drops a held A's tap.
-  buttons.frame(32, 0, bindings);
-  expect(buttons.held().ctrl).toBe(true);
-  expect(buttons.frame(0, 32, bindings)).toEqual([]);
-  buttons.frame(1, 0, bindings); buttons.reset();
-  expect(buttons.frame(0, 1, bindings)).toEqual([]);
+  const masks = { A: 1, B: 2, X: 4, Y: 8, L: 16, R: 32, ZL: 64, ZR: 128, START: 256, SELECT: 512 };
+  const settings = { buttons: DEFAULT_BUTTONS, combos: [], timing: DEFAULT_TIMING };
+  const none = { ctrl: false, alt: false, shift: false }, alt = { ...none, alt: true };
+  const buttons = createButtons(masks);
+  // A tapped alone: nothing on press, Enter on release, whatever the length.
+  expect(buttons.frame(1, 0, settings, 0)).toEqual([]);
+  expect(buttons.held(100).alt).toBe(false);
+  expect(buttons.held(250).alt).toBe(true);
+  expect(buttons.frame(0, 1, settings, 400)).toEqual([{ kind: "tap", tap: "<CR>", mods: none }]);
+  // B inside A's 200 ms: Enter first, then B unmodified; A's release is silent.
+  buttons.frame(1, 0, settings, 1000);
+  expect(buttons.frame(3, 1, settings, 1100)).toEqual([{ kind: "tap", tap: "<CR>", mods: none }, { kind: "tap", tap: "<BS>", mods: none }]);
+  expect(buttons.frame(0, 3, settings, 1200)).toEqual([]);
+  // B after A's 200 ms: Alt+Backspace, and no Enter.
+  buttons.frame(1, 0, settings, 2000);
+  expect(buttons.frame(3, 1, settings, 2300)).toEqual([{ kind: "tap", tap: "<BS>", mods: alt }]);
+  expect(buttons.frame(0, 3, settings, 2400)).toEqual([]);
+  // A touch key goes through beforeSend the same way.
+  buttons.frame(1, 0, settings, 3000);
+  expect(buttons.beforeSend(3050)).toEqual([{ kind: "tap", tap: "<CR>", mods: none }]);
+  expect(buttons.held(3060).alt).toBe(false);
+  expect(buttons.frame(0, 1, settings, 3100)).toEqual([]);
+  buttons.frame(1, 0, settings, 4000);
+  expect(buttons.beforeSend(4300)).toEqual([]);
+  expect(buttons.held(4300).alt).toBe(true);
+  expect(buttons.frame(0, 1, settings, 4400)).toEqual([]);
+  // ZL is only a modifier; L is an action on press; reset drops a held A.
+  buttons.frame(64, 0, settings, 5000);
+  expect(buttons.held(5000).ctrl).toBe(true);
+  expect(buttons.frame(0, 64, settings, 5100)).toEqual([]);
+  expect(buttons.frame(16, 0, settings, 5200)).toEqual([{ kind: "action", action: "prev-session" }]);
+  buttons.frame(0, 16, settings, 5300);
+  buttons.frame(1, 0, settings, 6000); buttons.reset();
+  expect(buttons.frame(0, 1, settings, 6100)).toEqual([]);
+  // A holdMs of its own.
+  const slow = { ...settings, buttons: { ...DEFAULT_BUTTONS, A: { tap: "<CR>", hold: "alt" as const, holdMs: 500 } } };
+  buttons.frame(1, 0, slow, 7000);
+  expect(buttons.held(7300).alt).toBe(false);
+  expect(buttons.held(7500).alt).toBe(true);
+  buttons.reset();
 
-  expect(tapAction("<BS>", { ctrl: false, alt: true, shift: false })).toEqual({ kind: "key", key: "Backspace", ctrl: false, alt: true, shift: false });
-  expect(tapAction("<C-c>", { ctrl: false, alt: false, shift: false })).toEqual({ kind: "key", key: "c", ctrl: true, alt: false, shift: false });
-  expect(tapAction("ls", { ctrl: false, alt: false, shift: false })).toEqual({ kind: "text", text: "ls" });
-  expect(tapAction("x", { ctrl: true, alt: false, shift: false })).toEqual({ kind: "key", key: "x", ctrl: true, alt: false, shift: false });
-  expect(tapAction("<Esc>:w<CR>", { ctrl: false, alt: false, shift: false })).toEqual({ kind: "keys", sequence: "<Esc>:w<CR>" });
+  expect(tapAction("<BS>", alt)).toEqual({ kind: "key", key: "Backspace", ctrl: false, alt: true, shift: false });
+  expect(tapAction("<C-c>", none)).toEqual({ kind: "key", key: "c", ctrl: true, alt: false, shift: false });
+  expect(tapAction("ls", none)).toEqual({ kind: "text", text: "ls" });
+  expect(tapAction("x", { ...none, ctrl: true })).toEqual({ kind: "key", key: "x", ctrl: true, alt: false, shift: false });
+  expect(tapAction("<Esc>:w<CR>", none)).toEqual({ kind: "keys", sequence: "<Esc>:w<CR>" });
+});
+
+test("a combo fires when its buttons land within comboMs, and suppresses their own jobs", async () => {
+  const { createButtons } = await import("../app/buttons.ts");
+  const masks = { A: 1, B: 2, X: 4, Y: 8, L: 16, R: 32, ZL: 64, ZR: 128, START: 256, SELECT: 512 };
+  const settings = { buttons: DEFAULT_BUTTONS, combos: [{ buttons: ["L", "R"] as ButtonName[], tap: "<C-c><C-c>" }], timing: DEFAULT_TIMING };
+  const buttons = createButtons(masks);
+  // L then R 30 ms later: the combo, and no session switching.
+  expect(buttons.frame(16, 0, settings, 0)).toEqual([]);
+  expect(buttons.frame(48, 16, settings, 30)).toEqual([{ kind: "tap", tap: "<C-c><C-c>", mods: { ctrl: false, alt: false, shift: false } }]);
+  expect(buttons.frame(0, 48, settings, 200)).toEqual([]);
+  // L alone: its own job once comboMs has passed.
+  expect(buttons.frame(16, 0, settings, 1000)).toEqual([]);
+  expect(buttons.frame(16, 16, settings, 1060)).toEqual([{ kind: "action", action: "prev-session" }]);
+  // R well after L: each does its own job.
+  expect(buttons.frame(48, 16, settings, 1200)).toEqual([]);
+  expect(buttons.frame(48, 48, settings, 1260)).toEqual([{ kind: "action", action: "next-session" }]);
+  buttons.frame(0, 48, settings, 1300);
+  // A quick L tap shorter than comboMs still switches.
+  buttons.frame(16, 0, settings, 2000);
+  expect(buttons.frame(0, 16, settings, 2030)).toEqual([{ kind: "action", action: "prev-session" }]);
+});
+
+test("config parses with comments and checks buttons, combos and timing", () => {
+  const config = buildConfig(parseJsonc(`{
+    // A comment, and a trailing comma.
+    "timing": { "holdMs": 300, "comboMs": 80 },
+    "buttons": { "L": { "action": "files" }, "R": { "action": "nope" } },
+    "combos": [
+      { "buttons": ["L", "R"], "action": "commands" },
+      { "buttons": ["L"], "tap": "x" },
+      { "buttons": ["L", "START"] },
+    ],
+  }`));
+  expect(config.timing).toEqual({ holdMs: 300, comboMs: 80, ctrlMenuMs: DEFAULT_TIMING.ctrlMenuMs });
+  expect(config.buttons.L).toEqual({ action: "files" });
+  expect(config.buttons.R).toEqual(DEFAULT_BUTTONS.R);
+  expect(config.combos).toEqual([{ buttons: ["L", "R"], action: "commands" }]);
+  const errors = config.errors.join("\n");
+  expect(errors).toContain("action must be one of");
+  expect(errors).toContain("two or more different buttons");
+  expect(errors).toContain("needs a tap or an action");
 });

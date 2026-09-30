@@ -19,7 +19,8 @@ import { TermSettings } from "./settings.tsx";
 import { MenuPanel } from "./menus.tsx";
 import { FileBrowser, shellQuote } from "./files.tsx";
 import { literalKeys } from "../shared/keyseq.ts";
-import { createButtons, NO_MODS, sameMods, tapAction, type Mods } from "./buttons.ts";
+import { createButtons, NO_MODS, sameMods, tapAction, type ButtonEvent, type Mods } from "./buttons.ts";
+import { virtualNow } from "@pocketjs/framework/clock";
 import { createDictation, type DictationState } from "./dictation.ts";
 
 const TAB_H = 26;
@@ -93,6 +94,32 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   const [held, setHeld] = createSignal<Mods>(NO_MODS);
   const ctrlActive = () => ctrlArmed() || held().ctrl;
   const buttonMap = createButtons();
+  const nowMs = () => virtualNow() * 1000;
+
+  /** Carry out what a button, combo or resolved hold asked for. Returns
+   *  whether it sent anything to the terminal. */
+  const runButton = (event: ButtonEvent): boolean => {
+    if (event.kind === "tap") {
+      const action = tapAction(event.tap, { ...event.mods, ctrl: event.mods.ctrl || ctrlArmed() });
+      if (action.kind === "key") store.sendKey(action.key, action.ctrl, action.alt, action.shift);
+      else if (action.kind === "text") store.sendText(action.text);
+      else store.sendKeys(action.sequence);
+      return true;
+    }
+    switch (event.action) {
+      case "prev-session": store.attachSibling(-1); break;
+      case "next-session": store.attachSibling(1); break;
+      case "new-session": store.newSession(); break;
+      case "files": if (store.activeSid() >= 0) { store.history?.stop(); setFilesOpen(true); } break;
+      case "commands": store.history?.stop(); setMenu("commands"); break;
+      case "ctrl-menu": store.history?.stop(); setMenu("ctrl"); break;
+      case "settings": store.history?.stop(); setSettingsOpen(true); break;
+    }
+    return false;
+  };
+  /** Before any key that is not a button's own: a tap-and-hold button still
+   *  inside its hold time is a tap, and goes first. */
+  const beforeKey = () => { for (const event of buttonMap.beforeSend(nowMs())) runButton(event); };
 
   const dpadHeld = new Map<number, number>();
   const cursorStick = createCursorStick();
@@ -122,23 +149,21 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
       if (settingsOpen() && pressed & BTN.CROSS) setSettingsOpen(false);
       return;
     }
-    const taps = buttonMap.frame(buttons, before, store.config().buttons);
-    const mods = buttonMap.held();
-    if (!sameMods(mods, held())) setHeld(mods);
-
+    const now = nowMs();
     let sentThisFrame = false;
+    for (const event of buttonMap.frame(buttons, before, store.config(), now)) {
+      if (runButton(event)) sentThisFrame = true;
+      if (overlay()) return; // an action opened a menu; it has the buttons now
+    }
+    const syncHeld = () => { const mods = buttonMap.held(nowMs()); if (!sameMods(mods, held())) setHeld(mods); };
+    syncHeld();
+
     const send = (key: string, ctrl: boolean) => {
-      store.sendKey(key, ctrl, mods.alt, mods.shift);
-      buttonMap.use();
+      beforeKey();
+      const mods = buttonMap.held(nowMs());
+      store.sendKey(key, ctrl || mods.ctrl, mods.alt, mods.shift);
       sentThisFrame = true;
     };
-    for (const { tap, mods: with_ } of taps) {
-      const action = tapAction(tap, { ...with_, ctrl: with_.ctrl || ctrlArmed() });
-      if (action.kind === "key") store.sendKey(action.key, action.ctrl, action.alt, action.shift);
-      else if (action.kind === "text") store.sendText(action.text);
-      else store.sendKeys(action.sequence);
-      sentThisFrame = true;
-    }
 
     // The d-pad repeats; everything else fires on its press edge. All of it
     // is level-tested here rather than through onButtonPress so a key can
@@ -154,15 +179,12 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
         dpadHeld.set(mask, 0);
       }
     }
-    if (pressed & BTN.SELECT && store.activeSid() >= 0) { store.history?.stop(); setFilesOpen(true); }
 
     const cursorKey = cursorStick.step(rightAnalogX(), rightAnalogY());
     if (cursorKey) send(cursorKey, ctrlActive());
 
     if (sentThisFrame && ctrlArmed()) setCtrlArmed(false);
-
-    if (pressed & BTN.LTRIGGER) store.attachSibling(-1);
-    if (pressed & BTN.RTRIGGER) store.attachSibling(1);
+    syncHeld();
 
   });
 
@@ -318,12 +340,13 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
             onCtrlMenu={() => { store.history?.stop(); setMenu("ctrl"); }}
             onVoice={() => dictation.toggle()}
             voiceState={dictationState()}
+            beforeKey={() => { beforeKey(); const mods = buttonMap.held(nowMs()); if (!sameMods(mods, held())) setHeld(mods); }}
+            ctrlMenuSeconds={store.config().timing.ctrlMenuMs / 1000}
             onChar={(ch) => {
               store.sendText(ch);
-              buttonMap.use();
               setCtrlArmed(false);
             }}
-            onKey={(name, ctrl, alt, shift) => { store.sendKey(name, ctrl || held().ctrl, alt, shift); buttonMap.use(); }}
+            onKey={(name, ctrl, alt, shift) => store.sendKey(name, ctrl || held().ctrl, alt, shift)}
             ctrlArmed={ctrlActive}
             altHeld={() => held().alt}
             shiftHeld={() => held().shift}
