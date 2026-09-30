@@ -1,5 +1,13 @@
 # Pocket Term - Omarchy Version
 
+Featuring an updated keyboard and voice dictation using Omarchy's built in
+Voxtype. To install, git clone this version of PocketJS:
+https://github.com/chrispository/pocketjs and tell your coding agent to build
+this repo (pocket-term-omarchy) with that version of PocketJS. Click the voice
+button to begin dictation, and click again to end dictation.
+
+<img src="docs/screenshots/keyboard-voice.png" width="320" alt="Pocket Term keyboard with a voice button" />
+
 Pocket Term is a **Nintendo 3DS terminal client with an Omarchy companion**.
 Open independent shell sessions, switch between them, edit in Vim or Nano,
 and read scrollback with the Circle Pad or a touchpad. Each session can also
