@@ -18,6 +18,7 @@ import {
   isDynamicSlot,
 } from "../shared/protocol.ts";
 import type { TermChannel } from "./channel.ts";
+import type { Menus } from "../shared/menus.ts";
 import { createTermHistory, type TermHistory } from "./history.ts";
 import { createTypingPrediction, type TypingPreview } from "./prediction.ts";
 
@@ -83,6 +84,10 @@ export interface TermStore {
   frame(): void;
   sendText(s: string): void;
   sendKey(k: KeyName | string, ctrl?: boolean, alt?: boolean, shift?: boolean): void;
+  /** Play a menu entry's key sequence (shared/keyseq.ts) on the companion. */
+  sendKeys(sequence: string): void;
+  /** The ctrl and >_ menus from the companion's config file. */
+  menus: Accessor<Menus>;
   scroll(lines: number): void;
   newSession(): void;
   kill(sid: number): void;
@@ -111,6 +116,7 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
   const [bell, setBell] = createSignal(false);
   const [dynamicGlyphs, setDynamicGlyphs] = createSignal(0);
   const [status, setStatus] = createSignal("");
+  const [menus, setMenus] = createSignal<Menus>({ ctrl: [], commands: [], errors: [] });
   const rowSignals = Array.from({ length: rows }, () => createSignal<Run[]>([]));
   const [preview, setPreview] = createSignal<TypingPreview>();
   const prediction = createTypingPrediction(y => rowSignals[y][0](), cursor, setPreview, cols, rows);
@@ -269,6 +275,13 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
     const id = svc?.send(line);
     if (id && conn() === "live") prediction.input(line, id, virtualNow() * 1000); else prediction.reset();
   };
+  const sendKeys = (sequence: string) => {
+    if (!wasOpen || activeSid() < 0 || !sequence) return;
+    // A sequence may hold waits and named keys; the grid that comes back is
+    // the only honest preview of it.
+    prediction.reset(); history?.goLive();
+    svc?.send({ t: "keys", s: sequence });
+  };
   const paste = (text: string) => {
     if (!wasOpen || activeSid() < 0 || !text) return;
     prediction.reset(); history?.goLive();
@@ -298,6 +311,9 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
         history?.reset();
         coverage.clear(); setAtlasVersion(n => n + 1);
         setConn("link");
+        break;
+      case "menus":
+        setMenus({ ctrl: line.ctrl ?? [], commands: line.commands ?? [], errors: line.errors ?? [] });
         break;
       case "hello":
         // The local host says hello too, with a viewport and no proto. Only
@@ -429,6 +445,8 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
     },
     sendText,
     sendKey,
+    sendKeys,
+    menus,
     scroll,
     newSession() {
       prediction.reset(); svc?.send({ t: "new" });

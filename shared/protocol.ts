@@ -132,6 +132,9 @@ export type ClientLine =
   | { t: "ch"; s: string }
   | { t: "paste"; s: string; phase: "start" | "more" | "end" | "single" }
   | { t: "key"; k: string; ctrl?: 1; alt?: 1; shift?: 1 }
+  /** A menu entry's key sequence (shared/keyseq.ts), played by the
+   *  companion so its waits are timed beside the PTY. */
+  | { t: "keys"; s: string }
   | { t: "scroll"; d: number }
   | { t: "glyphs"; one: string; two: string; reset?: 1; more?: 1 }
   | { t: "resync" };
@@ -177,7 +180,9 @@ export type HostLine =
       history?: import("./history.ts").HistoryManifest;
     }
   | { t: "exit"; sid: number }
-  | { t: "bell"; sid: number };
+  | { t: "bell"; sid: number }
+  /** The ctrl and >_ menus, on hello and whenever the config file changes. */
+  | ({ t: "menus" } & import("./menus.ts").Menus);
 
 /**
  * Lines the LOCAL host puts into the same svc queue as the companion's.

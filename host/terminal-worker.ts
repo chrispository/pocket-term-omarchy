@@ -31,6 +31,8 @@ import {
 import { chunkRows, resolveCell, rowKey, rowRuns, type Cell } from "./grid.ts";
 import { DynamicAtlasSet, isBakedCodepoint } from "./glyphs.ts";
 import { encodeKey } from "./keys.ts";
+import { defaultMenusPath, KeyPlayer, watchMenus } from "./menus.ts";
+import { KEYSEQ_LIMITS } from "../shared/keyseq.ts";
 import {
   FrameParser,
   WIRE_MSG,
@@ -78,6 +80,7 @@ const options = {
   trace: false,
   /** Open a desktop window per session. */
   mirror: true,
+  menus: defaultMenusPath(),
 };
 
 {
@@ -92,6 +95,7 @@ const options = {
     else if (a === "--no-login") options.login = false;
     else if (a === "--no-beacon") {} // accepted by older launch scripts
     else if (a === "--no-mirror") options.mirror = false;
+    else if (a === "--menus") options.menus = argv[++i];
     else {
       console.error(`unknown argument: ${a}`);
       process.exit(2);
@@ -467,6 +471,22 @@ function attach(conn: Conn, sid: number) {
 }
 
 // ---------------------------------------------------------------------------
+// menus — read from the config file, sent to every device replica
+// ---------------------------------------------------------------------------
+
+const keyPlayers = new Map<number, KeyPlayer>();
+const menus = watchMenus(options.menus, () => {
+  for (const conn of hub.conns) if (conn.sawClientHello) sendMenus(conn);
+  scheduleFlush();
+});
+
+/** Only offload replicas get menus: a loopback mirror's svc line buffer is
+ *  8 KiB and a mirror window has no menu to show them in. */
+function sendMenus(conn: Conn) {
+  if (conn.mailbox && conn.role === "device") conn.sendLine({ t: "menus", ...menus.current() });
+}
+
+// ---------------------------------------------------------------------------
 // client line handling
 // ---------------------------------------------------------------------------
 
@@ -516,6 +536,7 @@ function handleLine(conn: Conn, line: ClientLine) {
       }
 
       conn.sendLine({ t: "hello", proto: TERM_PROTO, name: options.name });
+      sendMenus(conn);
       // Every terminal uses the fixed primary geometry: every session tracks the driving replica's grid
       // (the tmux attach model, one window size at a time). Other replicas
       // that were sized differently get a fresh snapshot at the new size.
@@ -575,6 +596,20 @@ function handleLine(conn: Conn, line: ClientLine) {
       if (!session) break;
       if (conn.scrollback !== 0) conn.scrollback = 0;
       session.write(encodeKey(line.k, line.ctrl === 1, line.alt === 1, session.appCursor(), line.shift === 1));
+      break;
+    }
+    case "keys": {
+      const sid = conn.attachedSid;
+      if (!hub.sessions.has(sid)) break;
+      if (conn.scrollback !== 0) conn.scrollback = 0;
+      let player = keyPlayers.get(sid);
+      if (!player) keyPlayers.set(sid, player = new KeyPlayer());
+      player.play(line.s, step => {
+        const session = hub.sessions.get(sid);
+        if (!session || session.disposed) { keyPlayers.delete(sid); return false; }
+        session.write("text" in step ? step.text : encodeKey(step.key, step.ctrl, step.alt, session.appCursor(), step.shift));
+        return true;
+      });
       break;
     }
     case "scroll": {
@@ -1190,6 +1225,8 @@ function validateClientLine(line: ClientLine) {
       return;
     case "key":
       if (typeof line.k !== "string" || line.k.length > 16) throw new Error("Invalid key"); return;
+    case "keys":
+      if (typeof line.s !== "string" || line.s.length > KEYSEQ_LIMITS.chars) throw new Error("Invalid key sequence"); return;
     case "glyphs":
       if (typeof line.one !== "string" || typeof line.two !== "string" || line.one.length + line.two.length > 448 || [...line.one, ...line.two].length > 224) throw new Error("Glyph demand exceeds budget"); return;
     case "kill": case "attach":
