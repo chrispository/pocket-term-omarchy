@@ -16,6 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Session } from "./session.ts";
+import { nowUs, span, trace, traceAs, tracing } from "./trace.ts";
 import {
   LINE_BUDGET,
   TERM_APP,
@@ -50,6 +51,17 @@ import {
 // ---------------------------------------------------------------------------
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+traceAs("term");
+if (tracing) {
+  // A stalled event loop delays every stage below without showing up in any
+  // one of them, so its delay distribution is sampled on its own.
+  const { monitorEventLoopDelay } = await import("node:perf_hooks");
+  const loop = monitorEventLoopDelay({ resolution: 1 }); loop.enable();
+  setInterval(() => {
+    trace("loop", { p50Us: Math.round(loop.percentile(50) / 1000), p99Us: Math.round(loop.percentile(99) / 1000), maxUs: Math.round(loop.max / 1000) });
+    loop.reset();
+  }, 1000).unref();
+}
 const ROOT = resolve(HERE, "..");
 /** The desktop host binary, which is also the `linux-app` one. */
 const MIRROR_BIN = join(ROOT, "vendor/pocketjs/hosts/desktop/target/release/pocket-desktop-host");
@@ -442,10 +454,11 @@ function snapshot(conn: Conn) {
 }
 
 function flush(conn: Conn) {
-  if (conn.mailbox?.busy) return;
+  if (conn.mailbox?.busy) { trace("flush.busy"); return; }
   const session = hub.sessions.get(conn.attachedSid);
   if (!session || !conn.sawClientHello) return;
-  const rows = viewRows(session, conn);
+  const started = tracing ? nowUs() : 0;
+  const rows = span("flush.viewRows", undefined, () => viewRows(session, conn));
   const updates: RowUpdate[] = [];
   for (let y = 0; y < rows.length; y += 1) {
     const key = rowKey(rows[y]);
@@ -458,7 +471,9 @@ function flush(conn: Conn) {
   const cursorKey = JSON.stringify([cursor, conn.scrollback, session.history.manifest()]);
   if (updates.length === 0 && cursorKey === conn.lastCursor) { pumpAtlasSend(conn); return; }
   conn.lastCursor = cursorKey;
+  const seq = conn.seq;
   conn.sendGrid(updates, cursor, false);
+  trace("flush.grid", { seq, lines: conn.seq - seq, rows: updates.map(u => u[0]), cur: cursor, totalUs: nowUs() - started });
 }
 
 function attach(conn: Conn, sid: number) {
@@ -716,7 +731,9 @@ setInterval(() => {
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+let flushScheduledAt = 0;
 function flushAll(): void {
+  if (tracing) trace("flush.all", { timer: flushTimer !== null, lateUs: flushTimer !== null ? nowUs() - flushScheduledAt : undefined });
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
     flushTimer = null;
@@ -741,6 +758,7 @@ function flushAll(): void {
  *  for a poll to come round. */
 function scheduleFlush(): void {
   if (flushTimer !== null) return;
+  if (tracing) flushScheduledAt = nowUs();
   flushTimer = setTimeout(flushAll, FLUSH_COALESCE_MS);
 }
 
@@ -1106,6 +1124,8 @@ function handleVoiceRequest(path: string, body: string): string {
 }
 
 const broker = createHttpServer(async (request, response) => {
+  const arrived = tracing ? nowUs() : 0;
+  if (tracing) response.on("finish", () => trace("http", { url: request.url, totalUs: nowUs() - arrived }));
   if (request.method !== "POST" || !["/exchange", "/history", "/history-batch", "/input", "/voice/begin", "/voice/chunk", "/voice/end", "/voice/status", "/voice/cancel", "/files"].includes(request.url ?? "") || request.headers.authorization !== `Bearer ${token}`) {
     response.writeHead(403).end(); return;
   }
@@ -1183,9 +1203,14 @@ const broker = createHttpServer(async (request, response) => {
       conn = new Conn({ destroy() {}, writableLength: 0 } as unknown as Socket);
       conn.mailbox = new Mailbox(); replicas.set(input.replica, conn); hub.conns.add(conn);
     }
+    const bodyAt = tracing ? nowUs() : 0;
     const reply = request.url === "/input"
       ? conn.mailbox!.input(input as unknown as import("../shared/exchange.ts").InputRequest, `${epoch}-${conn.mailbox!.identity}`, line => handleLine(conn!, line))
       : conn.mailbox!.exchange(input, `${epoch}-${conn.mailbox!.identity}`, line => handleLine(conn!, line));
+    if (tracing) trace(request.url === "/input" ? "http.input" : "http.exchange", {
+      bodyUs: bodyAt - arrived, handleUs: nowUs() - bodyAt, ack: reply.ack, received: input.received,
+      ...("sequence" in reply ? { sequence: reply.sequence, dataLen: (reply as { data?: string }).data?.length, queue: conn.mailbox!.busy } : {}),
+    });
     response.setHeader("content-type", "application/json");
     response.end(JSON.stringify(reply));
     if (!conn.mailbox!.busy) scheduleFlush();
