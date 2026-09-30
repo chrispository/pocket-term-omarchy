@@ -159,12 +159,10 @@ assigned session; session creation, closing and switching belong to the 3DS.
 ### Menus and buttons
 
 Holding `ctrl` opens a list of control keys, and `>_` opens groups of
-commands. Both, and what the buttons do, come from
-`~/.config/pocket-term/config.json` on the computer (`--config <path>` names
-another file); without it the daemon uses
-[config.example.json](config.example.json), which is the place to start. The
-daemon rereads the file when it is saved, so a change reaches the 3DS without
-a rebuild.
+commands. Both, and what the buttons do, are set in
+[config.json](config.json) at the top of this repository; edit it there
+(`bun run daemon --config <path>` reads another file instead). The daemon
+rereads it when it is saved, so a change reaches the 3DS without a rebuild.
 
 ```json
 {

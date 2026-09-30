@@ -67,8 +67,8 @@ test("menus reduce every entry to one key sequence and report mistakes", () => {
   expect(menus.errors.join("\n")).toContain('unknown section "extra"');
 });
 
-test("the example config builds without errors", () => {
-  const menus = buildConfig(JSON.parse(readFileSync(new URL("../config.example.json", import.meta.url), "utf8")));
+test("the shipped config.json builds without errors", () => {
+  const menus = buildConfig(JSON.parse(readFileSync(new URL("../config.json", import.meta.url), "utf8")));
   expect(menus.errors).toEqual([]);
   expect(menus.ctrl[0]).toMatchObject({ label: "interrupt twice", keys: "<C-c><C-c>" });
   expect(menus.commands.map(g => g.label)).toEqual(["nvim", "git", "shell", "claude"]);

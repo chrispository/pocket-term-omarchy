@@ -144,7 +144,7 @@ export function MenuPanel(props: MenuPanelProps) {
   });
   const footer = () => {
     if (props.errors > 0) return `config has ${props.errors} problem${props.errors === 1 ? "" : "s"}: see the daemon log`;
-    if (items().length === 0) return "empty: edit ~/.config/pocket-term/config.json";
+    if (items().length === 0) return "empty: edit config.json in the pocket-term folder";
     return parents().length > 0 ? "tap or A to run · B back" : props.tiles ? "tap or A to open · B close" : "tap or A to send · B close";
   };
   const slots = Array.from({ length: VISIBLE_ROWS }, (_, i) => i);
