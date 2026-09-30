@@ -114,7 +114,11 @@ export function FileBrowser(props: { sid: number; onCd(path: string): void; onCl
     setLoading(true);
     const cached = target !== undefined ? cache.get(target) : undefined;
     if (target !== undefined) { setPath(target); setEntries(cached ?? []); }
-    if (!cached) { setSel(0); setTop(0); }
+    setSel(0); setTop(0);
+    if (cached && reselect) {
+      const at = cached.findIndex(e => e[0] === reselect);
+      if (at >= 0) select(at);
+    }
     let gathered: FileEntry[] = [];
     const page = (offset: number) => request({ sid: props.sid, ...(target !== undefined ? { path: target } : {}), offset }, reply => {
       if (offset === 0) { setPath(reply.path); setHome(reply.home); target = reply.path; }
@@ -209,8 +213,9 @@ export function FileBrowser(props: { sid: number; onCd(path: string): void; onCl
       if (c.y >= 240 - FOOT_H) return;
       const n = top() + Math.floor((c.y - LIST_TOP) / ROW_H);
       if (n >= entries().length) return;
-      // The first tap selects; a tap on the selected folder opens it.
-      if (n === sel()) enter(n); else select(n);
+      // A folder opens; a file only takes the selection.
+      select(n);
+      enter(n);
     },
     onPanMove(c) {
       drag += c.fdy;
