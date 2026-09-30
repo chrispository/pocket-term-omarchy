@@ -12,7 +12,7 @@
 // Ctrl arms on release rather than on touch, because holding it instead
 // opens the ctrl menu.
 
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSelector, createSignal, For, Index, on, Show } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { onFrame } from "@pocketjs/framework/lifecycle";
@@ -92,6 +92,8 @@ export function Keyboard(props: KeyboardProps) {
   // Another layout may not have the layer this one was on.
   createEffect(on(() => props.layout, () => setLayerName("lower"), { defer: true }));
   const rowIndices = createMemo(() => Array.from({ length: props.rows }, (_, row) => row));
+  // A press wakes the key it lands on and the one it leaves, not every key.
+  const isPressed = createSelector(pressed);
 
   const press = (hit: KeyHit) => {
     setPressed(`${hit.row}:${hit.index}`);
@@ -183,7 +185,7 @@ export function Keyboard(props: KeyboardProps) {
                 row={row}
                 keys={rowsFor(props.layout, layerName())[row] ?? []}
                 keyH={props.keyH}
-                pressed={pressed()}
+                pressed={isPressed}
                 ctrlArmed={props.ctrlArmed()}
                 altArmed={altArmed() || props.altHeld()}
                 voiceState={props.voiceState}
@@ -198,7 +200,7 @@ export function Keyboard(props: KeyboardProps) {
               row={row}
               keys={rowsFor(props.layout, layerName())[row] ?? []}
               keyH={props.keyH}
-              pressed={pressed()}
+              pressed={isPressed}
               ctrlArmed={props.ctrlArmed()}
               altArmed={altArmed() || props.altHeld()}
               voiceState={props.voiceState}
@@ -259,7 +261,7 @@ function KeyboardRow(props: {
   row: number;
   keys: KeyDef[];
   keyH: number;
-  pressed: string | null;
+  pressed: (key: string) => boolean;
   ctrlArmed: boolean;
   altArmed: boolean;
   voiceState: KeyboardProps["voiceState"];
@@ -269,13 +271,16 @@ function KeyboardRow(props: {
   // unless the label is too long for a seventh of the panel.
   const big = () => props.keyH >= 34;
   return (
-    <For each={placed()}>
-      {({ def, index, left }) => {
-        const isPressed = createMemo(() => props.pressed === `${props.row}:${index}`);
-        const isArmedCtrl = () => "mod" in def.act && (def.act.mod === "ctrl" && props.ctrlArmed || def.act.mod === "alt" && props.altArmed);
-        const isVoice = "voice" in def.act;
-        const voiceActive = () => isVoice && (props.voiceState === "starting" || props.voiceState === "recording");
-        const label = () => isVoice ? voiceKeyLabel(props.voiceState) : def.label;
+    // By position: switching layers relabels the keys in place instead of
+    // rebuilding every cap, which cost a whole frame on the console.
+    <Index each={placed()}>
+      {(key) => {
+        const def = () => key().def;
+        const isPressed = () => props.pressed(`${props.row}:${key().index}`);
+        const isArmedCtrl = () => { const act = def().act; return "mod" in act && (act.mod === "ctrl" && props.ctrlArmed || act.mod === "alt" && props.altArmed); };
+        const isVoice = () => "voice" in def().act;
+        const voiceActive = () => isVoice() && (props.voiceState === "starting" || props.voiceState === "recording");
+        const label = () => isVoice() ? voiceKeyLabel(props.voiceState) : def().label;
         const down = createMemo(() => isPressed() || isArmedCtrl() || voiceActive());
         return (
           // The socket: a dark recess the cap sits in. Unpressed, the cap
@@ -284,14 +289,14 @@ function KeyboardRow(props: {
           <View
             class="absolute rounded-[4] bg-[#080b11]"
             style={{
-              insetL: left + 2,
-              width: def.w * UNIT - 4,
+              insetL: key().left + 2,
+              width: def().w * UNIT - 4,
               height: props.keyH - 4,
               insetT: props.row * props.keyH + 2,
             }}
           >
             <View
-              class={capClass(down(), def.dark === true, isArmedCtrl())}
+              class={capClass(down(), def().dark === true, isArmedCtrl())}
               // Pressing moves the cap down into the socket, so the lip of
               // shadow appears above it instead of below. The middle stop sits
               // near whichever edge the light is on, which keeps the specular
@@ -307,7 +312,7 @@ function KeyboardRow(props: {
           </View>
         );
       }}
-    </For>
+    </Index>
   );
 }
 
@@ -323,7 +328,7 @@ function HairlineRow(props: {
   row: number;
   keys: KeyDef[];
   keyH: number;
-  pressed: string | null;
+  pressed: (key: string) => boolean;
   ctrlArmed: boolean;
   altArmed: boolean;
   voiceState: KeyboardProps["voiceState"];
@@ -331,23 +336,24 @@ function HairlineRow(props: {
   const placed = createMemo(() => placeKeys(props.keys));
   const big = () => props.keyH >= 34;
   return (
-    <For each={placed()}>
-      {({ def, index, left }) => {
-        const isPressed = createMemo(() => props.pressed === `${props.row}:${index}`);
-        const isVoice = "voice" in def.act;
-        const armed = () => "mod" in def.act && (def.act.mod === "ctrl" && props.ctrlArmed || def.act.mod === "alt" && props.altArmed) ||
-          isVoice && (props.voiceState === "starting" || props.voiceState === "recording");
-        const label = () => isVoice ? voiceKeyLabel(props.voiceState) : def.label;
+    <Index each={placed()}>
+      {(key) => {
+        const def = () => key().def;
+        const isPressed = () => props.pressed(`${props.row}:${key().index}`);
+        const isVoice = () => "voice" in def().act;
+        const armed = () => { const act = def().act; return "mod" in act && (act.mod === "ctrl" && props.ctrlArmed || act.mod === "alt" && props.altArmed) ||
+          isVoice() && (props.voiceState === "starting" || props.voiceState === "recording"); };
+        const label = () => isVoice() ? voiceKeyLabel(props.voiceState) : def().label;
         return (
           <View
             class={hairCellClass(isPressed(), armed())}
-            style={{ insetL: left - 1, width: def.w * UNIT + 1, insetT: props.row * props.keyH - 1, height: props.keyH + 1 }}
+            style={{ insetL: key().left - 1, width: def().w * UNIT + 1, insetT: props.row * props.keyH - 1, height: props.keyH + 1 }}
           >
-            <Text class={hairLabelClass(def.dark === true, "commands" in def.act, armed(), big() && label().length <= LONG_LABEL)}>{label()}</Text>
+            <Text class={hairLabelClass(def().dark === true, "commands" in def().act, armed(), big() && label().length <= LONG_LABEL)}>{label()}</Text>
           </View>
         );
       }}
-    </For>
+    </Index>
   );
 }
 
