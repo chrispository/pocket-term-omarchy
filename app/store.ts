@@ -18,7 +18,7 @@ import {
   isDynamicSlot,
 } from "../shared/protocol.ts";
 import type { TermChannel } from "./channel.ts";
-import type { Menus } from "../shared/menus.ts";
+import { EMPTY_CONFIG, type TermConfig } from "../shared/config.ts";
 import { createTermHistory, type TermHistory } from "./history.ts";
 import { createTypingPrediction, type TypingPreview } from "./prediction.ts";
 
@@ -86,8 +86,8 @@ export interface TermStore {
   sendKey(k: KeyName | string, ctrl?: boolean, alt?: boolean, shift?: boolean): void;
   /** Play a menu entry's key sequence (shared/keyseq.ts) on the companion. */
   sendKeys(sequence: string): void;
-  /** The ctrl and >_ menus from the companion's config file. */
-  menus: Accessor<Menus>;
+  /** Menus and buttons from the companion's config file. */
+  config: Accessor<TermConfig>;
   scroll(lines: number): void;
   newSession(): void;
   kill(sid: number): void;
@@ -116,7 +116,7 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
   const [bell, setBell] = createSignal(false);
   const [dynamicGlyphs, setDynamicGlyphs] = createSignal(0);
   const [status, setStatus] = createSignal("");
-  const [menus, setMenus] = createSignal<Menus>({ ctrl: [], commands: [], errors: [] });
+  const [config, setConfig] = createSignal<TermConfig>(EMPTY_CONFIG);
   const rowSignals = Array.from({ length: rows }, () => createSignal<Run[]>([]));
   const [preview, setPreview] = createSignal<TypingPreview>();
   const prediction = createTypingPrediction(y => rowSignals[y][0](), cursor, setPreview, cols, rows);
@@ -312,8 +312,8 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
         coverage.clear(); setAtlasVersion(n => n + 1);
         setConn("link");
         break;
-      case "menus":
-        setMenus({ ctrl: line.ctrl ?? [], commands: line.commands ?? [], errors: line.errors ?? [] });
+      case "config":
+        setConfig({ ctrl: line.ctrl ?? [], commands: line.commands ?? [], buttons: { ...EMPTY_CONFIG.buttons, ...line.buttons }, errors: line.errors ?? [] });
         break;
       case "hello":
         // The local host says hello too, with a viewport and no proto. Only
@@ -446,7 +446,7 @@ export function createTermStore(options: TermStoreOptions, svc: TermChannel | nu
     sendText,
     sendKey,
     sendKeys,
-    menus,
+    config,
     scroll,
     newSession() {
       prediction.reset(); svc?.send({ t: "new" });

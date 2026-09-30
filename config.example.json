@@ -1,4 +1,13 @@
 {
+  "buttons": {
+    "A": { "tap": "<CR>", "hold": "alt" },
+    "B": { "tap": "<BS>" },
+    "X": { "tap": "<Tab>" },
+    "Y": { "tap": "<Space>" },
+    "START": { "tap": "<C-c>" },
+    "ZL": { "hold": "ctrl" },
+    "ZR": {}
+  },
   "ctrl": [
     { "label": "interrupt twice", "keys": "<C-c><C-c>" },
     { "label": "cancel", "keys": "<C-c>" },

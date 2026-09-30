@@ -19,6 +19,7 @@ import { TermSettings } from "./settings.tsx";
 import { MenuPanel } from "./menus.tsx";
 import { FileBrowser, shellQuote } from "./files.tsx";
 import { literalKeys } from "../shared/keyseq.ts";
+import { createButtons, NO_MODS, sameMods, tapAction, type Mods } from "./buttons.ts";
 import { createDictation, type DictationState } from "./dictation.ts";
 
 const TAB_H = 26;
@@ -84,10 +85,14 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
     setPage(tabPage(at));
   });
   /** The touch keyboard's one-shot Ctrl: armed by its cap, spent by the next
-   *  key. Holding L is the other way in, and the cap lights for both. */
+   *  key. Holding a button bound to ctrl (ZL by default) is the other way in,
+   *  and the cap lights for both. */
   const [ctrlArmed, setCtrlArmed] = createSignal(false);
-  const [ctrlHeld, setCtrlHeld] = createSignal(false);
-  const ctrlActive = () => ctrlArmed() || ctrlHeld();
+  /** Modifiers held on hardware buttons (app/buttons.ts, the config file's
+   *  `buttons`): ZL is Ctrl and A is Alt by default. */
+  const [held, setHeld] = createSignal<Mods>(NO_MODS);
+  const ctrlActive = () => ctrlArmed() || held().ctrl;
+  const buttonMap = createButtons();
 
   const dpadHeld = new Map<number, number>();
   const cursorStick = createCursorStick();
@@ -109,21 +114,31 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
     store.frame();
     dictation.frame();
 
-    const pressed = buttons & ~prevButtons;
+    const before = prevButtons, pressed = buttons & ~before;
     prevButtons = buttons;
     if (overlay()) {
       // An open menu reads the buttons itself (app/menus.tsx).
-      cursorStick.reset(); dpadHeld.clear(); setCtrlHeld(false);
+      cursorStick.reset(); dpadHeld.clear(); buttonMap.reset(); setHeld(NO_MODS);
       if (settingsOpen() && pressed & BTN.CROSS) setSettingsOpen(false);
       return;
     }
-    setCtrlHeld((buttons & BTN.ZL) !== 0);
+    const taps = buttonMap.frame(buttons, before, store.config().buttons);
+    const mods = buttonMap.held();
+    if (!sameMods(mods, held())) setHeld(mods);
 
     let sentThisFrame = false;
     const send = (key: string, ctrl: boolean) => {
-      store.sendKey(key, ctrl);
+      store.sendKey(key, ctrl, mods.alt, mods.shift);
+      buttonMap.use();
       sentThisFrame = true;
     };
+    for (const { tap, mods: with_ } of taps) {
+      const action = tapAction(tap, { ...with_, ctrl: with_.ctrl || ctrlArmed() });
+      if (action.kind === "key") store.sendKey(action.key, action.ctrl, action.alt, action.shift);
+      else if (action.kind === "text") store.sendText(action.text);
+      else store.sendKeys(action.sequence);
+      sentThisFrame = true;
+    }
 
     // The d-pad repeats; everything else fires on its press edge. All of it
     // is level-tested here rather than through onButtonPress so a key can
@@ -139,10 +154,6 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
         dpadHeld.set(mask, 0);
       }
     }
-    for (const [mask, key] of FACE_KEYS) {
-      if (pressed & mask) send(key, ctrlActive());
-    }
-    if (pressed & BTN.START) send("c", true);
     if (pressed & BTN.SELECT && store.activeSid() >= 0) { store.history?.stop(); setFilesOpen(true); }
 
     const cursorKey = cursorStick.step(rightAnalogX(), rightAnalogY());
@@ -309,10 +320,13 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
             voiceState={dictationState()}
             onChar={(ch) => {
               store.sendText(ch);
+              buttonMap.use();
               setCtrlArmed(false);
             }}
-            onKey={(name, ctrl, alt, shift) => store.sendKey(name, ctrl || ctrlHeld(), alt, shift)}
+            onKey={(name, ctrl, alt, shift) => { store.sendKey(name, ctrl || held().ctrl, alt, shift); buttonMap.use(); }}
             ctrlArmed={ctrlActive}
+            altHeld={() => held().alt}
+            shiftHeld={() => held().shift}
             setCtrlArmed={setCtrlArmed}
           />
           {/* Slides out from under the strip while a tab is held. */}
@@ -343,9 +357,9 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
             {(kind) => (
               <MenuPanel
                 root={kind === "ctrl" ? "ctrl" : ">_"}
-                items={kind === "ctrl" ? store.menus().ctrl : store.menus().commands}
+                items={kind === "ctrl" ? store.config().ctrl : store.config().commands}
                 tiles={kind === "commands"}
-                errors={store.menus().errors.length}
+                errors={store.config().errors.length}
                 onSend={(keys) => { store.sendKeys(keys); setMenu(null); }}
                 onClose={() => setMenu(null)}
               />
@@ -379,10 +393,3 @@ function tabLabelClass(active: boolean, hairline: boolean): string {
   return active ? "text-xs text-[#dfe6f2]" : "text-xs text-[#5d708c]";
 }
 
-/** Face buttons that send a key, level-tested so a held Ctrl applies. */
-const FACE_KEYS: readonly [number, string][] = [
-  [BTN.CIRCLE, "Enter"],
-  [BTN.CROSS, "Backspace"],
-  [BTN.TRIANGLE, "Tab"],
-  [BTN.SQUARE, "Space"],
-];

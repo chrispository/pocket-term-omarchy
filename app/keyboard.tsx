@@ -71,6 +71,9 @@ export interface KeyboardProps {
   /** One-shot Ctrl arms here; the next character key consumes it. */
   ctrlArmed: () => boolean;
   setCtrlArmed: (on: boolean) => void;
+  /** Alt and Shift held on hardware buttons (A holds Alt by default). */
+  altHeld: () => boolean;
+  shiftHeld: () => boolean;
 }
 
 export function Keyboard(props: KeyboardProps) {
@@ -95,16 +98,17 @@ export function Keyboard(props: KeyboardProps) {
     } else if ("voice" in act) {
       props.onVoice();
     } else if ("ch" in act) {
-      if (act.ctrl || props.ctrlArmed() || altArmed()) {
-        props.onKey(act.ch, !!act.ctrl || props.ctrlArmed(), altArmed(), false);
+      const alt = altArmed() || props.altHeld();
+      if (act.ctrl || props.ctrlArmed() || alt) {
+        props.onKey(act.ch, !!act.ctrl || props.ctrlArmed(), alt, false);
         setAltArmed(false);
         props.setCtrlArmed(false);
       } else {
-        props.onChar(act.ch);
+        props.onChar(props.shiftHeld() ? act.ch.toUpperCase() : act.ch);
       }
       if (layerName() === "upper") setLayerName("lower"); // one-shot shift
     } else if ("key" in act) {
-      props.onKey(act.key, props.ctrlArmed(), altArmed(), layerName() === "upper");
+      props.onKey(act.key, props.ctrlArmed(), altArmed() || props.altHeld(), layerName() === "upper" || props.shiftHeld());
       setAltArmed(false);
       if (layerName() === "upper") setLayerName("lower");
       props.setCtrlArmed(false);
@@ -172,7 +176,7 @@ export function Keyboard(props: KeyboardProps) {
                 keyH={props.keyH}
                 pressed={pressed()}
                 ctrlArmed={props.ctrlArmed()}
-                altArmed={altArmed()}
+                altArmed={altArmed() || props.altHeld()}
                 voiceState={props.voiceState}
               />
             )}
@@ -187,7 +191,7 @@ export function Keyboard(props: KeyboardProps) {
               keyH={props.keyH}
               pressed={pressed()}
               ctrlArmed={props.ctrlArmed()}
-              altArmed={altArmed()}
+              altArmed={altArmed() || props.altHeld()}
               voiceState={props.voiceState}
             />
           )}

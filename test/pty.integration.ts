@@ -135,9 +135,9 @@ test("real host PTYs: multiplex, resumable history, vim/nano cursor keys and VT 
     await first.exchange({ t: "ch", s: `printf x >> '${directory}/once'; printf '\\033[2J\\033[H__FIRST__\\n'\r` }, true);
     await first.until(() => first.text().includes("__FIRST__"));
     await delay(100); assert.equal(readFileSync(join(directory, "once"), "utf8"), "x");
-    // The menus arrive with hello (HOME has no config, so the example); a
+    // The config arrives with hello (HOME has none, so the example); a
     // menu entry's sequence is played on the host, waits included.
-    assert(first.lines.some(line => line.t === "menus" && line.commands.length === 4 && line.errors.length === 0));
+    assert(first.lines.some(line => line.t === "config" && line.commands.length === 4 && line.buttons.A.hold === "alt" && line.errors.length === 0));
     await first.exchange({ t: "keys", s: `printf KEYS_<wait:50>DONE > '${directory}/keys'<CR>` });
     await delay(250); assert.equal(readFileSync(join(directory, "keys"), "utf8"), "KEYS_DONE");
     // The file browser starts in the shell's working directory, folders

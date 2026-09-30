@@ -133,7 +133,7 @@ in memory and does not restore shells after an Omarchy or daemon restart.
 
 | Control | Action |
 | --- | --- |
-| A / B / X / Y | Enter / Backspace / Tab / Space |
+| A / B / X / Y | Enter / Backspace / Tab / Space; hold A for Alt |
 | D-pad | Terminal cursor arrows, with repeat |
 | Circle Pad / touchpad drag and flick | Scroll local history with inertia |
 | Right nub, where supported | Repeating editor cursor arrows |
@@ -145,6 +145,7 @@ in memory and does not restore shells after an Omarchy or daemon restart.
 | Hold a tab, slide down, release | Close the selected session |
 | Touch page arrows | Page through session tabs |
 | Hold ZL, where supported | Ctrl modifier |
+| Buttons above, START, ZL, ZR | Set in the config file's `buttons` |
 | Tap / hold keyboard `ctrl` | Ctrl for the next key / the ctrl menu |
 | Keyboard `>_` key | The command menu |
 | `?123` → `#{~` → `F1+` | Symbols, function keys and navigation keys |
@@ -155,12 +156,13 @@ The touch keyboard provides Shift, Ctrl and Alt. The hardware arrows replace
 touch arrow keys. Desktop mirrors accept keyboard input and paste into their
 assigned session; session creation, closing and switching belong to the 3DS.
 
-### Menus
+### Menus and buttons
 
 Holding `ctrl` opens a list of control keys, and `>_` opens groups of
-commands. Both come from `~/.config/pocket-term/menus.json` on the computer
-(`--menus <path>` names another file); without it the daemon uses
-[menus.example.json](menus.example.json), which is the place to start. The
+commands. Both, and what the buttons do, come from
+`~/.config/pocket-term/config.json` on the computer (`--config <path>` names
+another file); without it the daemon uses
+[config.example.json](config.example.json), which is the place to start. The
 daemon rereads the file when it is saved, so a change reaches the 3DS without
 a rebuild.
 
@@ -189,6 +191,19 @@ to four deep. `hint` replaces the grey text on the right. In a key sequence,
 `<wait:75>` pauses 75 ms. The daemon plays a sequence beside the shell, so the
 pauses keep their length over Wi-Fi. Labels are drawn in plain ASCII; the
 daemon log lists any entry it could not use.
+
+`buttons` sets A, B, X, Y, START, ZL and ZR. Each takes a `tap` key sequence,
+a `hold` modifier (`ctrl`, `alt` or `shift`), or both:
+
+```json
+"buttons": { "A": { "tap": "<CR>", "hold": "alt" }, "ZR": { "hold": "shift" } }
+```
+
+A button with both is tap-or-hold: pressing another key or button while it
+is down adds the modifier, and a press with nothing else in it sends the tap
+when it is released. That is how A sends Enter and also holds Alt. A button
+the file names replaces its default; `{}` turns it off. L, R, SELECT, the
+D-pad and the sticks keep their jobs.
 
 <img src="docs/screenshots/settings.png" width="320" height="240" alt="Current lower-screen settings: Spleentt, Spleen and Fusion Pixel fonts, Auto typing preview and Fast scroll speed" />
 

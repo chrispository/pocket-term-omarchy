@@ -1,6 +1,6 @@
 // app/menus.tsx — the ctrl menu (hold ctrl) and the command menu (>_).
 //
-// Both are lists from the companion's config file (shared/menus.ts). A leaf
+// Both are lists from the companion's config file (shared/config.ts). A leaf
 // sends its key sequence and closes the menu; a branch opens its submenu.
 // The command menu's top level lays out as tiles when it has four or fewer
 // groups. Touch, the d-pad and A/B all work: tap or A runs the selection, B
@@ -11,7 +11,7 @@ import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
-import type { MenuItem } from "../shared/menus.ts";
+import type { MenuItem } from "../shared/config.ts";
 import { FOOT_H, HEAD_H, LIST_TOP, PANEL_TOP, ROW_H, SLOT_MONO_XS, SLOT_SM, SLOT_XS, VISIBLE_ROWS, fitCrumbs, fitEnd, textWidth } from "./panel.ts";
 
 const TILE_MAX = 4;
@@ -135,7 +135,7 @@ export function MenuPanel(props: MenuPanelProps) {
   });
   const footer = () => {
     if (props.errors > 0) return `config has ${props.errors} problem${props.errors === 1 ? "" : "s"}: see the daemon log`;
-    if (items().length === 0) return "empty: edit ~/.config/pocket-term/menus.json";
+    if (items().length === 0) return "empty: edit ~/.config/pocket-term/config.json";
     return parents().length > 0 ? "tap or A to run · B back" : props.tiles ? "tap or A to open · B close" : "tap or A to send · B close";
   };
   const slots = Array.from({ length: VISIBLE_ROWS }, (_, i) => i);

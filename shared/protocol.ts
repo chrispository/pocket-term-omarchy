@@ -181,8 +181,8 @@ export type HostLine =
     }
   | { t: "exit"; sid: number }
   | { t: "bell"; sid: number }
-  /** The ctrl and >_ menus, on hello and whenever the config file changes. */
-  | ({ t: "menus" } & import("./menus.ts").Menus);
+  /** Menus and buttons, on hello and whenever the config file changes. */
+  | ({ t: "config" } & import("./config.ts").TermConfig);
 
 /**
  * Lines the LOCAL host puts into the same svc queue as the companion's.
