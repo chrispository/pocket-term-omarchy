@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #05070a; font-family: "Noto Sans", sans-serif; padding: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 320px); gap: 16px 18px; }
+  .screen { position: relative; width: 320px; height: 240px; overflow: hidden; background: #0b0c0e; }
+  .t { color: #dfe6f2; font-size: 13px; margin-top: 6px; font-weight: 600; }
+  .d { color: #72869e; font-size: 11px; width: 320px; line-height: 1.35; }
+  .abs { position: absolute; }
+  .c { display: flex; align-items: center; justify-content: center; }
+  .mono { font-family: "DejaVu Sans Mono", monospace; }
+</style>
+<div class="grid" id="grid"></div>
+<script>
+const U = 32, KH = 42, TOP = 28;
+const H = { plate:"#0b0c0e", hair:"#23262b", fg:"#e8e8e8", dim:"#7d848f", faint:"#4a4f57", sel:"#17191d" };
+const ACTION = [["esc",1],["tab",1],["ctl",1],["alt",1],["voice",2],["settings",2],[">_",2,"mono"]];
+const LETTERS = [
+  "qwertyuiop".split("").map(c=>[c,1]),
+  [..."asdfghjkl".split("").map(c=>[c,1]),["'",1]],
+  [["⇧",1.5,"d"],..."zxcvbnm".split("").map(c=>[c,1]),["⌫",1.5,"d"]],
+  [["?123",1.5,"d"],["-",1],["space",4],["/",1],[".",1],["⏎",1.5,"d"]],
+];
+function cell(label, x, y, w, o = {}) {
+  const fs = label.length > 4 ? 12 : label.length > 1 ? 13 : 16;
+  const color = o.on ? H.plate : o.dark ? H.dim : H.fg;
+  return `<div class="abs c ${o.mono ? "mono" : ""}" style="left:${x}px;top:${y}px;width:${w*U}px;height:${KH}px;box-shadow:inset -1px -1px 0 ${H.hair};
+    ${o.on ? `background:${H.fg};` : ""}color:${color};font-size:${o.mono ? 13 : fs}px;font-weight:300">${label}</div>`;
+}
+function tabs() {
+  let h = `<div class="abs" style="left:0;right:0;top:0;height:26px;display:flex">`;
+  ["zsh #1","nvim #2","claude #3"].forEach((n,i) => h += `<div class="c" style="position:relative;width:72px;height:26px;font-size:12px;color:${i==0?"#f2f2f2":H.faint}">${n}${i==0?`<div class="abs" style="left:0;right:0;bottom:0;height:2px;background:#f2f2f2"></div>`:""}</div>`);
+  h += `<div class="c" style="width:30px;color:${H.faint}">+</div></div>`;
+  return h + `<div class="abs" style="left:0;right:0;top:${TOP-1}px;height:1px;background:${H.hair}"></div>`;
+}
+function board(on) {
+  let h = tabs(), x = 0;
+  for (const [l,w,m] of ACTION) { h += cell(l, x, TOP, w, { dark: true, on: on === l, mono: m }); x += w*U; }
+  LETTERS.forEach((row, r) => { let x = 0; for (const [l,w,k] of row) { h += cell(l, x, TOP+(r+1)*KH, w, { dark: k === "d" }); x += w*U; } });
+  return h;
+}
+/* A menu panel: replaces the keyboard below the tab strip, like settings does. */
+function header(crumbs, right = "") {
+  let h = `<div class="abs" style="left:0;right:0;top:26px;height:26px;display:flex;align-items:center;padding-left:10px;font-size:12px;box-shadow:inset 0 -1px 0 ${H.hair}">`;
+  crumbs.forEach((c, i) => h += (i ? `<span style="color:${H.faint};margin:0 6px">›</span>` : "") + `<span class="${c.mono?"mono":""}" style="color:${i === crumbs.length-1 ? H.fg : H.dim}">${c.t}</span>`);
+  return h + `<span style="margin-left:auto;padding-right:10px;color:${H.faint};font-size:11px">${right}</span></div>`;
+}
+function footer(text) {
+  return `<div class="abs" style="left:0;right:0;bottom:0;height:22px;box-shadow:inset 0 1px 0 ${H.hair};padding-left:10px;line-height:22px;font-size:11px;color:${H.faint}">${text}</div>`;
+}
+function list(rows, sel, top = 52, rh = 27) {
+  let h = "";
+  rows.forEach(([label, detail, sub], i) => {
+    const on = i === sel;
+    h += `<div class="abs" style="left:0;right:0;top:${top+i*rh}px;height:${rh}px;display:flex;align-items:center;font-size:13px;box-shadow:inset 0 -1px 0 ${H.hair};${on?`background:${H.sel};`:""}">
+      ${on ? `<div class="abs" style="left:0;top:0;bottom:0;width:2px;background:${H.fg}"></div>` : ""}
+      <span style="padding-left:12px;color:${H.fg};font-weight:${on?400:300}">${label}</span>
+      <span class="mono" style="margin-left:auto;padding-right:${sub?6:12}px;color:${on?H.dim:H.faint};font-size:11px">${detail}</span>
+      ${sub ? `<span style="padding-right:12px;color:${H.dim}">›</span>` : ""}</div>`;
+  });
+  return h;
+}
+const scroll = (top, h, at, len) => `<div class="abs" style="right:2px;top:${top}px;width:2px;height:${h}px;background:${H.hair}"><div class="abs" style="left:0;right:0;top:${at}px;height:${len}px;background:${H.dim}"></div></div>`;
+
+// 1. Keyboard with split settings
+const kb = () => board();
+// 2. Hold ctl -> ctrl menu
+function ctrl() {
+  let h = tabs() + header([{t:"ctrl"}], "held");
+  h += list([
+    ["interrupt twice", "^C ^C"],
+    ["cancel", "^C"],
+    ["exit", "^D"],
+    ["suspend", "^Z"],
+    ["clear screen", "^L"],
+    ["search history", "^R"],
+  ], 0);
+  h += scroll(54, 160, 0, 110);
+  return h + footer("tap to send · B close");
+}
+// 3. >_ root: four tiles
+function root() {
+  let h = tabs() + header([{t:">_", mono:true}]);
+  const tiles = [["nvim","6 commands"],["git","11 commands"],["zsh","8 commands"],["docker","5 commands"]];
+  const tw = 160, th = (240-52-22)/2;
+  tiles.forEach(([n, c], i) => {
+    const x = (i%2)*tw, y = 52 + Math.floor(i/2)*th, on = i === 1;
+    h += `<div class="abs" style="left:${x}px;top:${y}px;width:${tw}px;height:${th}px;box-shadow:inset -1px -1px 0 ${H.hair};${on?`background:${H.sel};`:""}">
+      ${on ? `<div class="abs" style="left:0;top:0;bottom:0;width:2px;background:${H.fg}"></div>` : ""}
+      <div class="abs mono" style="left:14px;top:22px;font-size:20px;font-weight:300;color:${H.fg}">${n}</div>
+      <div class="abs" style="left:14px;top:52px;font-size:11px;color:${H.faint}">${c}</div>
+      <div class="abs" style="right:12px;top:26px;font-size:16px;color:${H.dim}">›</div></div>`;
+  });
+  return h + footer("tap to open · B close");
+}
+// 4. >_ › git
+function git() {
+  let h = tabs() + header([{t:">_", mono:true},{t:"git"}]);
+  h += list([
+    ["status", "git status"],
+    ["log", "git log --oneline -20"],
+    ["diff", "git diff"],
+    ["commit…", "git commit -m \"▏\""],
+    ["push", "git push"],
+    ["branches", "", true],
+  ], 3);
+  h += scroll(54, 160, 30, 90);
+  return h + footer("tap to run · … types without Enter · B back");
+}
+const panels = [
+  [kb, "Keyboard", "Hairline. pgu and pgd are gone (the circle pad scrolls), which leaves room for settings and a >_ key that opens your command menu."],
+  [ctrl, "Hold ctl", "A quick tap still arms Ctrl for the next key. Holding ctl opens your ctrl list, read from the config; the first entry sends ^C twice."],
+  [root, ">_ menu", "Your top-level groups, laid out as tiles when there are four or fewer, and as a list when there are more."],
+  [git, ">_ › git", "A list of commands. Tapping one types it and presses Enter. A label ending in … types the text and stops, so you can finish it. › opens a submenu."],
+];
+const grid = document.getElementById("grid");
+for (const [fn, t, d] of panels) {
+  const el = document.createElement("div");
+  el.innerHTML = `<div class="screen">${fn()}</div><div class="t">${t}</div><div class="d">${d}</div>`;
+  grid.appendChild(el);
+}
+</script>

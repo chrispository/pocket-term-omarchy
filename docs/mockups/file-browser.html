@@ -1,0 +1,106 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #05070a; font-family: "Noto Sans", "DejaVu Sans", sans-serif; display: flex; gap: 16px; padding: 16px; }
+  .screen { position: relative; width: 320px; height: 240px; background: #0d1117; overflow: hidden; }
+  .top { position: absolute; left: 0; right: 0; top: 0; height: 26px; background: #141a24; }
+  /* the up button: a dark keyboard cap in its socket */
+  .socket { position: absolute; left: 3px; top: 2px; width: 42px; height: 22px; border-radius: 4px; background: #080b11; }
+  .cap { position: absolute; left: 0; right: 0; top: 0; height: 20px; border-radius: 4px;
+         background: linear-gradient(#4b5768 0%, #2a323d 18%, #1c222b 100%);
+         color: #dfe6f2; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  .crumbs { position: absolute; left: 52px; right: 8px; top: 0; height: 26px; display: flex; align-items: center;
+            font-size: 12px; white-space: nowrap; overflow: hidden; }
+  .crumb { color: #5d708c; }
+  .sep { color: #35475b; margin: 0 4px; }
+  .here { color: #dfe6f2; }
+  .rule { position: absolute; left: 0; right: 0; top: 26px; height: 1px; background: #1f2835; }
+  .list { position: absolute; left: 0; right: 6px; top: 27px; }
+  .row { position: relative; height: 21px; display: flex; align-items: center; font-size: 12px; color: #dfe6f2; }
+  .row.sel { background: #294463; }
+  .row.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: #4c9bf5; }
+  .icon { position: relative; width: 14px; height: 10px; margin: 0 8px 0 10px; flex: none; }
+  .dir .tab { position: absolute; left: 0; top: 0; width: 6px; height: 3px; border-radius: 1px 1px 0 0; background: #6f94c2; }
+  .dir .body { position: absolute; left: 0; top: 2px; right: 0; bottom: 0; border-radius: 1px; background: #6f94c2; }
+  .file .body { position: absolute; left: 2px; top: -1px; width: 9px; height: 12px; border-radius: 1px; background: #3a4351; }
+  .exec .body { position: absolute; left: 2px; top: -1px; width: 9px; height: 12px; border-radius: 1px; background: #42765a; }
+  .name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .hidden .name { color: #72869e; }
+  .link .name { color: #9fb6d8; }
+  .meta { width: 58px; text-align: right; padding-right: 8px; color: #576d87; font-size: 11px; flex: none; }
+  .row.sel .meta { color: #9fb6d8; }
+  .scroll { position: absolute; right: 1px; top: 29px; width: 3px; height: 190px; border-radius: 2px; background: #141b24; }
+  .thumb { position: absolute; left: 0; right: 0; border-radius: 2px; background: #35475b; }
+  .bottom { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; background: #141a24;
+            display: flex; align-items: center; font-size: 11px; color: #576d87; padding: 0 6px; gap: 8px; }
+  .btn { color: #9fb6d8; }
+  .count { margin-left: auto; }
+  .caption { color: #72869e; font-size: 12px; margin-top: 6px; width: 320px; }
+</style>
+
+<!-- Frame 1: browsing, a folder selected -->
+<div>
+<div class="screen">
+  <div class="top">
+    <div class="socket"><div class="cap">↑ up</div></div>
+    <div class="crumbs">
+      <span class="crumb">~</span><span class="sep">›</span>
+      <span class="crumb">Documents</span><span class="sep">›</span>
+      <span class="crumb">3ds</span><span class="sep">›</span>
+      <span class="here">pocket-term</span>
+    </div>
+  </div>
+  <div class="rule"></div>
+  <div class="list">
+    <div class="row dir"><div class="icon dir"><div class="tab"></div><div class="body"></div></div><div class="name">app</div><div class="meta">18 items</div></div>
+    <div class="row dir sel"><div class="icon dir"><div class="tab"></div><div class="body"></div></div><div class="name">docs</div><div class="meta">9 items</div></div>
+    <div class="row"><div class="icon dir"><div class="tab"></div><div class="body"></div></div><div class="name">host</div><div class="meta">16 items</div></div>
+    <div class="row"><div class="icon dir"><div class="tab"></div><div class="body"></div></div><div class="name">scripts</div><div class="meta">14 items</div></div>
+    <div class="row"><div class="icon dir"><div class="tab"></div><div class="body"></div></div><div class="name">shared</div><div class="meta">8 items</div></div>
+    <div class="row link"><div class="icon dir"><div class="tab"></div><div class="body"></div></div><div class="name">vendor → ../pocketjs</div><div class="meta">link</div></div>
+    <div class="row hidden"><div class="icon file"><div class="body"></div></div><div class="name">.gitignore</div><div class="meta">214 B</div></div>
+    <div class="row"><div class="icon file"><div class="body"></div></div><div class="name">AGENTS.md</div><div class="meta">3.9 KB</div></div>
+    <div class="row"><div class="icon exec"><div class="body"></div></div><div class="name">build.sh</div><div class="meta">1.2 KB</div></div>
+  </div>
+  <div class="scroll"><div class="thumb" style="top:0;height:120px"></div></div>
+  <div class="bottom">
+    <span><span class="btn">A</span> open</span>
+    <span><span class="btn">B</span> up</span>
+    <span><span class="btn">SELECT</span> cd here</span>
+    <span><span class="btn">START</span> cancel</span>
+  </div>
+</div>
+<div class="caption">A opens a folder. SELECT runs cd into the folder shown and brings the keyboard back.</div>
+</div>
+
+<!-- Frame 2: deep path, file selected -->
+<div>
+<div class="screen">
+  <div class="top">
+    <div class="socket"><div class="cap">↑ up</div></div>
+    <div class="crumbs">
+      <span class="crumb">…</span><span class="sep">›</span>
+      <span class="crumb">framework</span><span class="sep">›</span>
+      <span class="crumb">src</span><span class="sep">›</span>
+      <span class="here">components</span>
+    </div>
+  </div>
+  <div class="rule"></div>
+  <div class="list">
+    <div class="row"><div class="icon file"><div class="body"></div></div><div class="name">auxiliary.ts</div><div class="meta">2.1 KB</div></div>
+    <div class="row"><div class="icon file"><div class="body"></div></div><div class="name">image.ts</div><div class="meta">4.8 KB</div></div>
+    <div class="row"><div class="icon file"><div class="body"></div></div><div class="name">index.ts</div><div class="meta">611 B</div></div>
+    <div class="row sel"><div class="icon file"><div class="body"></div></div><div class="name">scroll-view-with-a-long-name-for-truncation.ts</div><div class="meta">12 KB</div></div>
+    <div class="row"><div class="icon file"><div class="body"></div></div><div class="name">text.ts</div><div class="meta">6.3 KB</div></div>
+    <div class="row"><div class="icon file"><div class="body"></div></div><div class="name">view.ts</div><div class="meta">9.0 KB</div></div>
+  </div>
+  <div class="scroll"><div class="thumb" style="top:0;height:190px"></div></div>
+  <div class="bottom">
+    <span><span class="btn">A</span> open</span>
+    <span><span class="btn">B</span> up</span>
+    <span><span class="btn">SELECT</span> cd here</span>
+    <span><span class="btn">START</span> cancel</span>
+  </div>
+</div>
+<div class="caption">START closes without changing folder. Leading crumbs collapse to “…”.</div>
+</div>

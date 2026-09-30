@@ -1,0 +1,163 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #05070a; font-family: "Noto Sans", sans-serif; padding: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 320px); gap: 16px 18px; }
+  .screen { position: relative; width: 320px; height: 240px; overflow: hidden; background: #0d1117; }
+  .t { color: #dfe6f2; font-size: 13px; margin-top: 6px; font-weight: 600; }
+  .d { color: #72869e; font-size: 11px; width: 320px; line-height: 1.35; }
+  .abs { position: absolute; }
+  .c { display: flex; align-items: center; justify-content: center; }
+</style>
+<div class="grid" id="grid"></div>
+<script>
+const U = 32, KH = 42;
+const G = { socket:"#080b11", cap:["#5f6c7f","#3a4351","#2a323e"], dark:["#4b5768","#2a323d","#1c222b"],
+  down:["#151a22","#1d242e","#343d4a"], armed:["#8cc2ff","#4c9bf5","#2f6fbe"] };
+const grad = g => `linear-gradient(${g[0]} 0%, ${g[1]} 18%, ${g[2]} 100%)`;
+const ACTION = [["esc",1],["tab",1],["ctl",1],["alt",1],["pgu",1],["pgd",1],["voice",2],["settings",2]];
+const LETTERS = [
+  "qwertyuiop".split("").map(c=>[c,1]),
+  [..."asdfghjkl".split("").map(c=>[c,1]),["'",1]],
+  [["⇧",1.5,"d"],..."zxcvbnm".split("").map(c=>[c,1]),["⌫",1.5,"d"]],
+  [["?123",1.5,"d"],["-",1],["space",4],["/",1],[".",1],["⏎",1.5,"d"]],
+];
+// Flick-up symbols: a terminal's most used punctuation on the letter it sits over.
+const FLICK = { q:"1",w:"2",e:"3",r:"4",t:"5",y:"6",u:"7",i:"8",o:"9",p:"0",
+  a:"|",s:"~",d:"$",f:"&",g:"*",h:"#",j:"`",k:"\"",l:":","'":";",
+  z:"\\",x:"<",c:">",v:"{",b:"}",n:"[",m:"]","-":"_","/":"?",".":"=" };
+
+function key(label, x, y, w, o = {}) {
+  const H = KH - 4, W = w*U - 4, lip = 2;
+  const cap = o.armed ? G.armed : o.down ? G.down : o.dark ? G.dark : G.cap;
+  const fs = o.fs ?? (label.length > 4 ? 12 : label.length > 1 ? 13 : 14);
+  let h = `<div class="abs" style="left:${x+2}px;top:${y+2}px;width:${W}px;height:${H}px;border-radius:4px;background:${G.socket}"></div>`;
+  h += `<div class="abs c" style="left:${x+2}px;top:${y+2+(o.down?lip:0)}px;width:${W}px;height:${H-lip}px;border-radius:4px;background:${grad(cap)};color:${o.down?"#c3d0e2":"#dfe6f2"};font-size:${fs}px">${label}`;
+  if (o.flick) h += `<div class="abs" style="right:4px;top:1px;font-size:9px;color:#8fa3bd">${o.flick}</div>`;
+  h += `</div>`;
+  return h;
+}
+function tabs() {
+  let h = `<div class="abs" style="left:0;right:0;top:0;height:26px;background:#141a24;display:flex">`;
+  ["zsh #1","nvim #2","claude #3"].forEach((n,i) => h += `<div class="c" style="position:relative;width:72px;height:26px;font-size:12px;${i==0?"background:#31394a;color:#dfe6f2":"color:#5d708c"}">${n}${i==0?`<div class="abs" style="left:0;right:0;bottom:0;height:2px;background:#4c9bf5"></div>`:""}</div>`);
+  return h + `</div>`;
+}
+function board(opts = {}) {
+  const top = opts.top ?? 28;
+  let h = "";
+  const action = opts.action ?? ACTION;
+  let x = 0; for (const [l,w] of action) { h += key(l, x, top, w, { dark: true, armed: opts.armed === l, fs: opts.actionFs }); x += w*U; }
+  LETTERS.forEach((row, r) => { let x = 0; for (const [l,w,k] of row) {
+    h += key(l, x, top + (r+1)*KH, w, { dark: k === "d", down: opts.down === l, flick: opts.flick ? FLICK[l] : undefined });
+    x += w*U; } });
+  return h;
+}
+const dim = (a = .72) => `<div class="abs" style="inset:0;background:rgba(8,11,17,${a})"></div>`;
+
+// ── 1. Ctrl marking menu ────────────────────────────────────────────────
+function ctrlRadial() {
+  let h = tabs() + board({ armed: "ctl" }) + dim();
+  const cx = 160, cy = 138, rx = 104, ry = 70;
+  const items = [["^C","cancel"],["^D","exit"],["^Z","suspend"],["^L","clear"],["^W","del word"],["^E","line end"],["^A","line start"],["^R","search"]];
+  items.forEach(([k, what], i) => {
+    const a = -Math.PI/2 + i * Math.PI/4, x = cx + rx*Math.cos(a), y = cy + ry*Math.sin(a), sel = i === 0;
+    h += `<div class="abs c" style="left:${x-32}px;top:${y-17}px;width:64px;height:34px;border-radius:8px;flex-direction:column;
+      background:${sel ? grad(G.armed) : grad(G.dark)};box-shadow:0 2px 4px rgba(0,0,0,.5)">
+      <div style="font-size:14px;font-weight:600;color:${sel?"#fff":"#dfe6f2"};line-height:15px">${k}</div>
+      <div style="font-size:9px;color:${sel?"#e6f1ff":"#8fa3bd"};line-height:11px">${what}</div></div>`;
+  });
+  h += `<div class="abs c" style="left:${cx-26}px;top:${cy-18}px;width:52px;height:36px;border-radius:18px;background:#141a24;border:1px solid #35475b;box-sizing:border-box;color:#9fb6d8;font-size:11px;flex-direction:column;line-height:12px">ctrl<span style="font-size:9px;color:#576d87">+ any key</span></div>`;
+  // drag trail from the hub to the chosen petal
+  h += `<div class="abs" style="left:${cx-1}px;top:${cy-ry+17}px;width:2px;height:${ry-35}px;background:#4c9bf5;opacity:.8"></div>`;
+  return h;
+}
+
+// ── 2. Flick-up symbols ─────────────────────────────────────────────────
+function flick() {
+  let h = tabs() + board({ flick: true, down: "d" });
+  // bubble over "d" (row 2, col 2): x 64..96
+  const kx = 64, ky = 28 + 2*KH;
+  h += `<div class="abs c" style="left:${kx-6}px;top:${ky-50}px;width:44px;height:48px;border-radius:8px;flex-direction:column;background:${grad(G.armed)};box-shadow:0 3px 6px rgba(0,0,0,.6)">
+     <div style="font-size:22px;font-weight:600;color:#fff;line-height:24px">$</div><div style="font-size:9px;color:#e6f1ff">↑ flick</div></div>`;
+  return h;
+}
+
+// ── 3. Context strips ───────────────────────────────────────────────────
+function context() {
+  const sets = [
+    ["zsh", [["esc",1],["tab",1],["ctl",1],["alt",1],["↑",1],["↓",1],["~/",1],["|",1],["&&",1],["cd",1]]],
+    ["nvim", [["esc",1],[":w",1],[":q",1],["u",1],["^r",1],["/",1],["n",1],["ciw",1],["dd",1],["gg",1]]],
+    ["claude", [["esc",1],["⇧tab",1.5],["^c",1],["y",1],["n",1],["/",1],["@",1],["!",1],["⏎",1.5]]],
+    ["less", [["q",1],["/",1],["n",1],["N",1],["g",1],["G",1],["pgu",1.5],["pgd",1.5],["F",1]]],
+  ];
+  let h = tabs();
+  sets.forEach(([name, keys], i) => {
+    const y = 30 + i*52;
+    h += `<div class="abs" style="left:6px;top:${y}px;font-size:9px;color:${i==0?"#9fb6d8":"#576d87"};letter-spacing:.5px">WHEN RUNNING ${name.toUpperCase()}</div>`;
+    let x = 0; for (const [l,w] of keys) { h += `<div class="abs" style="left:0;top:${y+10}px">${key(l, x, 0, w, { dark: true, fs: l.length > 3 ? 11 : 13 })}</div>`; x += w*U; }
+  });
+  return h;
+}
+
+// ── 4. Space-bar cursor ─────────────────────────────────────────────────
+function spaceDrag() {
+  let h = tabs() + board({ down: "space" });
+  const y = 28 + 4*KH, x = 64;
+  // the space cap turns into a track while dragging
+  h += `<div class="abs c" style="left:${x+2}px;top:${y+4}px;width:${4*U-4}px;height:${KH-6}px;border-radius:4px;background:#141b24;border:1px solid #4c9bf5;box-sizing:border-box">
+    <div class="abs" style="left:12px;right:12px;top:50%;height:1px;background:#35475b"></div>
+    <div class="abs" style="left:78px;top:50%;width:10px;height:10px;margin-top:-5px;border-radius:5px;background:#4c9bf5"></div>
+    <div class="abs" style="left:8px;top:9px;font-size:12px;color:#576d87">◂</div><div class="abs" style="right:8px;top:9px;font-size:12px;color:#576d87">▸</div></div>`;
+  h += `<div class="abs c" style="left:${x+56}px;top:${y-22}px;width:56px;height:20px;border-radius:10px;background:#294463;color:#dfe6f2;font-size:11px;box-shadow:0 2px 4px rgba(0,0,0,.5)">→ 3 cols</div>`;
+  // backspace swipe hint
+  const bx = 8.5*U, by = 28 + 3*KH;
+  h += `<div class="abs c" style="left:${bx-46}px;top:${by+4}px;width:44px;height:${KH-8}px;border-radius:4px;background:#5c2626;color:#ffd9d9;font-size:10px;flex-direction:column;line-height:11px"><span>⟵</span><span>word</span></div>`;
+  return h;
+}
+
+// ── 5. Recent-command shelf ─────────────────────────────────────────────
+function shelf() {
+  let h = tabs();
+  const chips = ["git status","bun run check","ls -la","cd ..","git log --oneline","nvim .","bun run 3ds"];
+  h += `<div class="abs" style="left:0;right:0;top:26px;height:26px;background:#10151c;display:flex;gap:4px;padding:4px 4px;box-sizing:border-box;overflow:hidden;white-space:nowrap">`;
+  chips.forEach((c,i) => h += `<div class="c" style="flex:none;height:18px;padding:0 8px;border-radius:9px;font-size:11px;${i==1?"background:#294463;color:#dfe6f2":"background:#1b2330;color:#9fb6d8"}">${c}</div>`);
+  h += `</div>`;
+  // keyboard compressed by one strip: rows at 36 px
+  const top = 54, kh = 37;
+  let out = "";
+  let x = 0; for (const [l,w] of ACTION) { out += key(l, x, 0, w, { dark: true }); x += w*U; }
+  h += `<div class="abs" style="left:0;top:${top}px;transform:scaleY(${kh/KH});transform-origin:top left;width:320px;height:${5*KH}px">${out}`;
+  LETTERS.forEach((row, r) => { let x = 0; for (const [l,w,k] of row) { h += key(l, x, (r+1)*KH, w, { dark: k === "d" }); x += w*U; } });
+  h += `</div>`;
+  return h;
+}
+
+// ── 6. Tab (completion) radial ──────────────────────────────────────────
+function tabRadial() {
+  let h = tabs() + board({ armed: "tab" }) + dim(.78);
+  h += `<div class="abs" style="left:0;right:0;top:26px;height:22px;background:#141a24;display:flex;align-items:center;padding-left:10px;font-size:11px;color:#72869e">completions for&nbsp;<span style="color:#dfe6f2">git ch</span></div>`;
+  const opts = ["checkout","cherry-pick","check-ignore","check-attr","check-mailmap","checkout-index"];
+  opts.forEach((o, i) => {
+    const sel = i === 0;
+    h += `<div class="abs" style="left:8px;right:8px;top:${54 + i*27}px;height:24px;border-radius:5px;display:flex;align-items:center;padding:0 10px;font-size:12px;box-sizing:border-box;
+      ${sel ? `background:${grad(G.armed)};color:#fff` : "background:#1b2330;color:#dfe6f2"}"><span style="color:${sel?"#e6f1ff":"#72869e"}">git </span>&nbsp;${o}</div>`;
+  });
+  h += `<div class="abs" style="left:0;right:0;bottom:0;height:20px;background:#141a24;padding-left:10px;line-height:20px;font-size:10px;color:#576d87">tap to insert · D-pad to move · B to close</div>`;
+  return h;
+}
+
+const panels = [
+  [ctrlRadial, "Ctrl marking menu", "Tap ctl to arm it for the next key, as it works now. Press and drag instead, and eight common shortcuts open around your finger; letting go on one sends it. You can also drag without looking once you know where each one is."],
+  [flick, "Flick-up symbols", "Each letter carries a terminal symbol in its corner: the top row has digits, the middle row has | ~ $ & * # ` \" :, the bottom row has \\ < > { } [ ]. Flicking up from a key types its symbol, so you rarely need ?123."],
+  [context, "Context strip", "The action row changes with the program running in the session. The host already knows it, because it names the tab. vim gets :w :q u, Claude gets ⇧tab and y/n, less gets / n N g G."],
+  [spaceDrag, "Space-bar cursor", "Drag along the space bar to move the cursor by columns, as on phone keyboards. Swiping left on ⌫ deletes a whole word (^W)."],
+  [shelf, "Recent-command shelf", "A row of chips above the keys shows your recent shell history; tapping one types the command. Everything that takes the most effort to type on a small touch screen is one tap."],
+  [tabRadial, "Completion picker", "Holding tab asks the shell for completions and lists them as large touch targets, instead of printing the candidates to the terminal."],
+];
+const grid = document.getElementById("grid");
+for (const [fn, t, d] of panels) {
+  const el = document.createElement("div");
+  el.innerHTML = `<div class="screen">${fn()}</div><div class="t">${t}</div><div class="d">${d}</div>`;
+  grid.appendChild(el);
+}
+</script>

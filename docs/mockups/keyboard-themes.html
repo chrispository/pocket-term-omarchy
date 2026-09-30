@@ -1,0 +1,96 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #05070a; font-family: "Noto Sans", sans-serif; padding: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 320px); gap: 14px 14px; }
+  .screen { position: relative; width: 320px; height: 240px; overflow: hidden; }
+  .cap-name { color: #dfe6f2; font-size: 13px; margin-top: 6px; font-weight: 600; }
+  .cap-desc { color: #72869e; font-size: 11px; width: 320px; line-height: 1.35; }
+  .abs { position: absolute; }
+  .label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+</style>
+<div class="grid" id="grid"></div>
+<script>
+const U = 32, TOP = 28, KH = 42;
+const rows = [
+  [["esc",1,"d"],["tab",1,"d"],["ctl",1,"d"],["alt",1,"d"],["pgu",1,"d"],["pgd",1,"d"],["voice",2,"d"],["settings",2,"d"]],
+  "qwertyuiop".split("").map(c=>[c,1]),
+  [..."asdfghjkl".split("").map(c=>[c,1]),["'",1]],
+  [["⇧",1.5,"d"],..."zxcvbnm".split("").map(c=>[c,1]),["⌫",1.5,"d"]],
+  [["?123",1.5,"d"],["-",1],["space",4,"s"],["/",1],[".",1],["⏎",1.5,"e"]],
+];
+const tabs = ["zsh #1","nvim #2","claude #3"];
+
+// Every theme uses only what PocketJS paints: 3-stop vertical gradients,
+// radius, an inset border, one of three baked shadows, opacity.
+const themes = [
+ { name: "Graphite (current)", desc: "The shipping keyboard, for reference.",
+   plate:"#0d1117", strip:"#141a24", tabOn:"#31394a", tabTx:"#5d708c", tabTxOn:"#dfe6f2", tabBar:"#4c9bf5",
+   socket:"#080b11", lip:2, r:4, cap:["#5f6c7f","#3a4351","#2a323e"], dark:["#4b5768","#2a323d","#1c222b"],
+   fg:"#dfe6f2", dfg:"#dfe6f2", size:14 },
+ { name: "Nord Frost", desc: "Flat caps with a hairline border. Frost-blue legends mark keys that are not letters; Enter is the one filled key.",
+   plate:"#242933", strip:"#2e3440", tabOn:"#3b4252", tabTx:"#616e88", tabTxOn:"#eceff4", tabBar:"#88c0d0",
+   r:5, cap:["#3b4252","#3b4252","#373e4c"], dark:["#2e3440","#2e3440","#2b313c"], border:"#4c566a", dborder:"#434c5e",
+   fg:"#eceff4", dfg:"#88c0d0", size:14, enter:{cap:["#8fbcbb","#88c0d0","#81a1c1"], fg:"#2e3440"} },
+ { name: "Phosphor", desc: "A green-screen CRT. Keys are outlines only, the legends are monospace, and the modifiers are filled in dim green.",
+   plate:"#030805", strip:"#06110a", tabOn:"#0c2415", tabTx:"#2f7d4f", tabTxOn:"#6cf29a", tabBar:"#6cf29a",
+   r:2, cap:["#051009","#051009","#051009"], dark:["#0b2415","#0b2415","#0b2415"], border:"#1f5a36", dborder:"#2f7d4f",
+   fg:"#6cf29a", dfg:"#9bf7bb", size:14, mono:true, gap:3, enter:{cap:["#2fbf6a","#23a95a","#1a8c4a"], fg:"#021006", border:"#6cf29a"} },
+ { name: "Olivetti", desc: "Cream sculpted caps on a warm grey plate, charcoal modifiers, and one red Escape key like a 1970s office machine.",
+   plate:"#2b2825", strip:"#1f1c1a", tabOn:"#3a3531", tabTx:"#8a8074", tabTxOn:"#f1e9da", tabBar:"#d9542b",
+   socket:"#141210", lip:3, r:5, cap:["#fbf6ea","#eee5d3","#d6ccb8"], dark:["#6a645c","#4d4843","#3a3632"],
+   fg:"#2b2621", dfg:"#f1e9da", size:14, esc:{cap:["#f07a50","#d9542b","#b23f1d"], fg:"#fff4ea"},
+   enter:{cap:["#6a645c","#4d4843","#3a3632"], fg:"#f1e9da"} },
+ { name: "Tokyo Night", desc: "Deep indigo caps. Each modifier's legend has its own colour so you can find it without reading, and Enter uses a violet-to-blue gradient.",
+   plate:"#16161e", strip:"#1a1b26", tabOn:"#292e42", tabTx:"#565f89", tabTxOn:"#c0caf5", tabBar:"#bb9af7",
+   socket:"#0e0e14", lip:2, r:6, cap:["#2f3549","#262b3d","#20243a"], dark:["#24283b","#1f2335","#1a1d2e"],
+   fg:"#c0caf5", dfg:"#a9b1d6", size:14,
+   colors:{esc:"#f7768e",tab:"#e0af68",ctl:"#bb9af7",alt:"#7dcfff",pgu:"#9ece6a",pgd:"#9ece6a",voice:"#ff9e64",settings:"#565f89","⌫":"#f7768e","⇧":"#7dcfff","?123":"#e0af68"},
+   enter:{cap:["#bb9af7","#8f8ff2","#7aa2f7"], fg:"#16161e"} },
+ { name: "Rosé Pine", desc: "Muted plum with rose and gold accents. Rounder caps with a soft baked shadow instead of a socket.",
+   plate:"#191724", strip:"#1f1d2e", tabOn:"#26233a", tabTx:"#6e6a86", tabTxOn:"#e0def4", tabBar:"#ebbcba",
+   shadow:"0 2px 3px rgba(0,0,0,.45)", r:8, cap:["#2d2a42","#26233a","#232036"], dark:["#1f1d2e","#1f1d2e","#1c1a2a"],
+   fg:"#e0def4", dfg:"#ebbcba", size:14, gap:3,
+   colors:{voice:"#f6c177",settings:"#908caa"}, enter:{cap:["#f2cdcb","#ebbcba","#d7a3a1"], fg:"#191724"} },
+ { name: "Hairline", desc: "No caps at all: a grid of 1px rules with large light legends, like HHKB printed on glass. It has the most room for labels.",
+   plate:"#0b0c0e", strip:"#0b0c0e", tabOn:"#0b0c0e", tabTx:"#4a4f57", tabTxOn:"#f2f2f2", tabBar:"#f2f2f2",
+   hair:"#23262b", r:0, cap:null, fg:"#e8e8e8", dfg:"#7d848f", size:16, light:true },
+ { name: "Paper", desc: "A light theme for playing outside in sunlight, where a dark screen washes out. It has white caps, graphite legends and an ink-blue Enter.",
+   plate:"#dcdfe4", strip:"#eef0f3", tabOn:"#ffffff", tabTx:"#8a93a0", tabTxOn:"#1d232b", tabBar:"#2c5fb3",
+   socket:"#b3b9c2", lip:2, r:5, cap:["#ffffff","#f7f8fa","#eceef2"], dark:["#c9ced6","#bcc2cb","#b0b7c1"],
+   fg:"#1d232b", dfg:"#2f3945", size:14, enter:{cap:["#4a7fd6","#2c5fb3","#244f97"], fg:"#ffffff"} },
+];
+
+const grad = g => `linear-gradient(${g[0]} 0%, ${g[1]} 18%, ${g[2]} 100%)`;
+function key(t, label, x, y, w, kind) {
+  const gap = t.gap ?? 2, H = KH - gap*2, W = w*U - gap*2;
+  const dark = kind === "d" || kind === "e";
+  let cap = dark ? t.dark : t.cap, fg = dark ? t.dfg : t.fg, border = dark ? t.dborder : t.border;
+  if (kind === "e" && t.enter) ({cap = cap, fg = fg} = t.enter, border = t.enter.border ?? border);
+  if (label === "esc" && t.esc) ({cap, fg} = t.esc);
+  if (t.colors && t.colors[label]) fg = t.colors[label];
+  const font = `${t.mono ? "font-family:'DejaVu Sans Mono',monospace;" : ""}font-size:${label.length > 4 ? (t.mono ? 10 : 12) : label.length > 1 ? (t.mono ? 12 : 13) : t.size}px;${t.light ? "font-weight:300;" : ""}`;
+  let h = "";
+  if (!cap) { // hairline: cells, no caps
+    h += `<div class="abs" style="left:${x}px;top:${y}px;width:${w*U}px;height:${KH}px;box-shadow:inset -1px -1px 0 ${t.hair};"></div>`;
+    h += `<div class="abs label" style="left:${x}px;top:${y}px;width:${w*U}px;height:${KH}px;color:${fg};${font}">${label}</div>`;
+    return h;
+  }
+  const lip = t.lip ?? 0;
+  if (t.socket) h += `<div class="abs" style="left:${x+gap}px;top:${y+gap}px;width:${W}px;height:${H}px;border-radius:${t.r}px;background:${t.socket}"></div>`;
+  h += `<div class="abs" style="left:${x+gap}px;top:${y+gap}px;width:${W}px;height:${H-lip}px;border-radius:${t.r}px;background:${grad(cap)};${border ? `box-shadow:inset 0 0 0 1px ${border};` : ""}${t.shadow && !t.socket ? `filter:drop-shadow(${t.shadow});` : ""}">
+     <div class="label" style="color:${fg};${font}">${label}</div></div>`;
+  return h;
+}
+const grid = document.getElementById("grid");
+for (const t of themes) {
+  let h = `<div class="screen" style="background:${t.plate}">`;
+  h += `<div class="abs" style="left:0;right:0;top:0;height:26px;background:${t.strip};display:flex">`;
+  tabs.forEach((n,i) => h += `<div style="position:relative;width:72px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;${i==0?`background:${t.tabOn};color:${t.tabTxOn}`:`color:${t.tabTx}`}">${n}${i==0?`<div class="abs" style="left:0;right:0;bottom:0;height:2px;background:${t.tabBar}"></div>`:""}</div>`);
+  h += `<div style="width:30px;display:flex;align-items:center;justify-content:center;color:${t.tabTx};font-size:14px">+</div></div>`;
+  if (t.hair) h += `<div class="abs" style="left:0;right:0;top:${TOP-1}px;height:1px;background:${t.hair}"></div>`;
+  rows.forEach((row, r) => { let x = 0; for (const [l,w,k] of row) { h += key(t, l, x, TOP + r*KH, w, k); x += w*U; } });
+  h += `</div><div class="cap-name">${t.name}</div><div class="cap-desc">${t.desc}</div>`;
+  const cell = document.createElement("div"); cell.innerHTML = h; grid.appendChild(cell);
+}
+</script>
