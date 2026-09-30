@@ -49,10 +49,11 @@ export interface Menus {
 
 export const MENU_LIMITS = { label: 32, detail: 40, items: 48, total: 400, depth: 4, chars: 32768 } as const;
 
-/** The console draws config text from its baked atlas, which is guaranteed
- *  to hold printable ASCII (app/menus.tsx carries the literal that bakes
- *  it). Anything else would draw as a blank box, so it is replaced up front
- *  and reported. */
+/** The console draws config text from its baked atlases, and the build
+ *  always bakes printable ASCII into them (vendor/pocketjs
+ *  framework/compiler/bake-font.ts); other characters exist only if some
+ *  source literal happened to carry them. Anything outside ASCII would draw
+ *  as a box, so it is replaced up front and reported. */
 const PRINTABLE = /^[\x20-\x7e]*$/;
 
 function clip(text: string, max: number): string {

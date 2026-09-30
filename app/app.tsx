@@ -16,6 +16,7 @@ import { TERM_LAYOUT, TABS_PER_PAGE, tabPage } from "../shared/layout.ts";
 import { createTermStore, type TermStore } from "./store.ts";
 import { createCursorStick } from "./stick.ts";
 import { TermSettings } from "./settings.tsx";
+import { MenuPanel } from "./menus.tsx";
 import { createDictation, type DictationState } from "./dictation.ts";
 
 const TAB_H = 26;
@@ -55,6 +56,10 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
   const [page, setPage] = createSignal(0);
   const [fontIndex, setFontIndex] = createSignal(0);
   const [settingsOpen, setSettingsOpen] = createSignal(props.initialSettings ?? false);
+  /** The menu standing in for the keyboard, if any. */
+  const [menu, setMenu] = createSignal<"ctrl" | "commands" | null>(null);
+  /** Something covers the keyboard and takes the buttons. */
+  const overlay = () => settingsOpen() || menu() !== null;
   const [scrollSpeed, setScrollSpeed] = createSignal(1);
   const [preview, setPreview] = createSignal(true);
   const [layoutName, setLayoutName] = createSignal(KEYBOARD.defaults.layout);
@@ -90,12 +95,12 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
     // Preserve the stick's velocity on release instead of easing through
     // only the final chase gap. Both touch and stick use the same fling.
     const pad = analogY();
-    if (!settingsOpen() && Math.abs(pad) > 0.1) {
+    if (!overlay() && Math.abs(pad) > 0.1) {
       const step = Math.sign(pad) * (Math.abs(pad) - 0.1) / 0.9 * 18 * scrollSpeed();
       if (step * stickVelocity < 0) store.history?.stop();
       stickVelocity = step * 60; store.history?.nudge(step);
     } else if (stickVelocity) {
-      if (!settingsOpen()) { store.history?.beginDrag(); store.history?.endDrag(stickVelocity); }
+      if (!overlay()) { store.history?.beginDrag(); store.history?.endDrag(stickVelocity); }
       stickVelocity = 0;
     }
     store.frame();
@@ -103,9 +108,10 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
 
     const pressed = buttons & ~prevButtons;
     prevButtons = buttons;
-    if (settingsOpen()) {
-      cursorStick.reset(); dpadHeld.clear();
-      if (pressed & BTN.CROSS) setSettingsOpen(false);
+    if (overlay()) {
+      // An open menu reads the buttons itself (app/menus.tsx).
+      cursorStick.reset(); dpadHeld.clear(); setCtrlHeld(false);
+      if (settingsOpen() && pressed & BTN.CROSS) setSettingsOpen(false);
       return;
     }
     setCtrlHeld((buttons & BTN.ZL) !== 0);
@@ -294,7 +300,8 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
             rows={kb().rows}
             keyH={kb().keyH}
             onSettings={() => { store.history?.stop(); setSettingsOpen(true); }}
-            onCommands={() => {}}
+            onCommands={() => { store.history?.stop(); setMenu("commands"); }}
+            onCtrlMenu={() => { store.history?.stop(); setMenu("ctrl"); }}
             onVoice={() => dictation.toggle()}
             voiceState={dictationState()}
             onChar={(ch) => {
@@ -327,6 +334,19 @@ export default function TermApp(props: { store?: TermStore; initialSettings?: bo
               </Text>
               <Text class="text-xs text-[#e0a0a0]">{closingTitle()}</Text>
             </View>
+          </Show>
+
+          <Show when={menu()} keyed>
+            {(kind) => (
+              <MenuPanel
+                root={kind === "ctrl" ? "ctrl" : ">_"}
+                items={kind === "ctrl" ? store.menus().ctrl : store.menus().commands}
+                tiles={kind === "commands"}
+                errors={store.menus().errors.length}
+                onSend={(keys) => { store.sendKeys(keys); setMenu(null); }}
+                onClose={() => setMenu(null)}
+              />
+            )}
           </Show>
 
           <Show when={settingsOpen()}>

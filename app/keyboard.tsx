@@ -9,6 +9,8 @@
 // ./keyboard-layout.ts, edited with `bun run keyboard`. Shift and Ctrl are
 // one-shot: they arm, the next key consumes them — the classic touch-phone
 // convention, and the only one that works with a single resistive contact.
+// Ctrl arms on release rather than on touch, because holding it instead
+// opens the ctrl menu.
 
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
@@ -59,6 +61,8 @@ export interface KeyboardProps {
   keyH: number;
   onSettings: () => void;
   onCommands: () => void;
+  /** Ctrl was held rather than tapped. */
+  onCtrlMenu: () => void;
   onVoice: () => void;
   voiceState: DictationState;
   onChar: (ch: string) => void;
@@ -75,6 +79,8 @@ export function Keyboard(props: KeyboardProps) {
   const [pressed, setPressed] = createSignal<string | null>(null);
   let rootNode: NodeMirror | undefined;
   let releaseTimer = 0;
+  /** Ctrl is down and has not yet been a tap or a hold. */
+  let ctrlDown = false;
   // Another layout may not have the layer this one was on.
   createEffect(on(() => props.layout, () => setLayerName("lower"), { defer: true }));
   const rowIndices = createMemo(() => Array.from({ length: props.rows }, (_, row) => row));
@@ -107,18 +113,30 @@ export function Keyboard(props: KeyboardProps) {
     } else if ("mod" in act) {
       if (act.mod === "shift") setLayerName(layerName() === "upper" ? "lower" : "upper");
       else if (act.mod === "alt") setAltArmed(!altArmed());
-      else props.setCtrlArmed(!props.ctrlArmed());
+      else ctrlDown = true;
     }
   };
 
   createGesture({
     surface: "auxiliary",
     region: { node: () => rootNode },
+    longPressSeconds: CTRL_HOLD_SECONDS,
     onDown: (contact) => {
+      ctrlDown = false;
       const hit = keyAt(props.layout, layerName(), contact.x, contact.y - props.top, props.keyH);
       if (hit) press(hit);
     },
-    onUp: () => {},
+    onLongPress: () => {
+      if (!ctrlDown) return;
+      ctrlDown = false;
+      props.setCtrlArmed(false);
+      props.onCtrlMenu();
+    },
+    onUp: () => {
+      if (ctrlDown) props.setCtrlArmed(!props.ctrlArmed());
+      ctrlDown = false;
+    },
+    onCancel: () => { ctrlDown = false; },
   });
 
   // The pressed flash decays on a frame budget.
@@ -178,6 +196,10 @@ export function Keyboard(props: KeyboardProps) {
     </View>
   );
 }
+
+/** How long ctrl is held before its menu opens: the same hold that arms
+ *  closing a session tab. */
+const CTRL_HOLD_SECONDS = 0.35;
 
 /** Longer labels ("settings") take the small size: the action row splits the
  *  panel seven ways, 45 or 46 px a key. */
