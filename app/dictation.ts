@@ -12,6 +12,7 @@ const CHUNK_BYTES = 1800;
 // Keep two of PocketJS's eight pending tickets available for terminal input
 // and screen exchange while dictation uploads in parallel.
 const MAX_CHUNK_REQUESTS = 6;
+const STATUS_POLL_FRAMES = 8;
 const MAX_CAPTURE_BYTES = 1_950_000;
 const MAX_QUEUED_BYTES = 256 * 1024;
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -212,7 +213,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
       }
       retries = 0;
       setState("transcribing");
-      pollAt = frameNumber + 30;
+      pollAt = frameNumber + STATUS_POLL_FRAMES;
     })) retryAt = frameNumber + 2;
   };
 
@@ -221,7 +222,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
     const generation = captureGeneration;
     if (!request("term.voice.status", JSON.stringify({ id: captureId }), result => {
       if (generation !== captureGeneration) return;
-      pollAt = frameNumber + 30;
+      pollAt = frameNumber + STATUS_POLL_FRAMES;
       if (!result.ok) return;
       try {
         const reply = JSON.parse(result.value) as { state?: unknown };
@@ -234,7 +235,7 @@ export function createDictation(session: () => number, onState: (state: Dictatio
         } else if (reply.state === "error") setState("transcription-error");
         else if (reply.state !== "transcribing") setState("transcription-error");
       } catch { setState("transcription-error"); }
-    })) pollAt = frameNumber + 30;
+    })) pollAt = frameNumber + STATUS_POLL_FRAMES;
   };
 
   return {
