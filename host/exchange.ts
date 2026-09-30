@@ -3,8 +3,13 @@ import { LIMITS, fitsRecord, type ExchangeReply, type ExchangeRequest, type Inpu
 import type { ClientLine, HostLine } from "../shared/protocol.ts";
 
 // A held fragment can be retried after input advances the ack or reports
-// an error. Reserve their largest encoding without changing held data.
-const ERROR_RESERVE = "\u0000".repeat(120);
+// an error. Reserve that error's room without changing held data. Errors
+// are stored as printable ASCII with no quote or backslash, so the reserve
+// is their length and not the six-fold escape of a control character,
+// which had cost every fragment of output a third of its reply budget.
+const ERROR_CHARS = 120;
+const ERROR_RESERVE = "?".repeat(ERROR_CHARS);
+const plainError = (error: unknown) => String(error).slice(0, ERROR_CHARS).replace(/[^\x20\x21\x23-\x5b\x5d-\x7e]/g, "?");
 
 /** A connection-independent replica. Replies remain until acknowledged;
  * command ids are consumed once, including rejected commands. PTYs belong
@@ -52,7 +57,7 @@ export class Mailbox {
       if (this.overflowed && command.line.t !== "hello") throw new Error("Replica hello required after overflow");
       if (!applying) { this.error = undefined; applying = true; }
       this.overflowed = false; this.ack = command.id;
-      try { apply(command.line); } catch (error) { this.error ??= String(error).slice(0, 120); }
+      try { apply(command.line); } catch (error) { this.error ??= plainError(error); }
     }
     return { epoch, ack: this.ack, ...(this.error ? { error: this.error } : {}) };
   }
