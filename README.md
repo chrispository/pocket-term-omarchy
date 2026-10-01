@@ -1,6 +1,6 @@
 # Pocket Term — Omarchy
 
-Pocket Term is a Nintendo 3DS terminal client with an Omarchy companion. It was originally forked from [Pocket Term](https://github.com/pocket-stack/pocket-term). Run shells on your Omarchy host from the 3DS with a touch keyboard and session tabs. The `>_` menu gives quick access to tools such as nvim and Git commands. Voice dictation is super quick and uses the Omarchy host's Voxtype, included with all Omarchy installations.
+Pocket Term is a Nintendo 3DS terminal client with an Omarchy companion. It was originally forked from [Pocket Term](https://github.com/pocket-stack/pocket-term). Run shells on your Omarchy host from the 3DS with a touch keyboard and session tabs. The `>_` menu gives quick access to tools such as nvim and Git commands. Voice dictation is super quick and uses the Omarchy host's Voxtype, included with all Omarchy installations. Press the voice key once to start dictation, and again to end it.
 
 <p><img src="docs/readme-keyboard.png" width="320" alt="Pocket Term touch keyboard with a command menu key" /></p>
 <p><img src="docs/readme-commands.png" width="660" alt="The command menu with nvim and Git groups, alongside Git shortcuts" /></p>
