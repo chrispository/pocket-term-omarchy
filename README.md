@@ -7,7 +7,7 @@ Pocket Term is a Nintendo 3DS terminal client with an Omarchy companion. It was 
 
 Configure the tools and options in [config.jsonc](config.jsonc).
 
-Pocket Term uses a customized [PocketJS checkout](https://github.com/chrispository/pocketjs); point your coding agent at it and ask it to build this repository. To connect, get your console's IP from ftpd, exit ftpd, then launch Pocket Term from Homebrew Launcher. With Pocket Term running, start the companion from this repository on your computer:
+Pocket Term uses a customized [PocketJS checkout](https://github.com/chrispository/pocketjs); point your coding agent at it and ask it to build this repository. To connect, get your console's IP from ftpd, exit ftpd, then launch Pocket Term from Homebrew Launcher. With Pocket Term running on your 3DS, start the companion from this repository on your host computer:
 
 ```sh
 bun run daemon --device <console-ip>
