@@ -11,7 +11,7 @@ Press the voice key once to start dictation, and again to end it.
 
 Configure the tools and options in [config.jsonc](config.jsonc). You can create your own macros like "Long holding A turns it into holding Alt." (Extremely handy when you're multiplexing.)
 
-Hitting select turns the keyboard into a directory selector. Long pressing the ctrl key launches a ctrl submenu. All of these key presses and menu options are customizable.
+The Select button turns the keyboard into a directory selector. Long pressing the ctrl key launches a ctrl submenu. All of these key presses and menu options are customizable.
 
 Pocket Term uses a customized [PocketJS checkout](https://github.com/chrispository/pocketjs); Most of the changes will likely NOT make it upstream to the original PocketJS as I ended up needing to make LOTS of changes to port from Mac to Linux and to bring latency down significantly. Point your coding agent to my forked PocketJS and this repository, and tell your agent to build pocket-term-omarchy using that forked version of PocketJS. 
 
